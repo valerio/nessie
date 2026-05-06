@@ -3,7 +3,7 @@ const testing = std.testing;
 
 /// Flags register
 /// NV1B DIZC
-const Flags = packed struct(u8) {
+pub const Flags = packed struct(u8) {
     /// Carry flag
     c: bool = false,
     /// Zero flag
