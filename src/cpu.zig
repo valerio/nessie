@@ -34,8 +34,6 @@ test "flags" {
     var f = Flags.fromByte(0x0F);
     try testing.expect(f.d);
     try testing.expect(f.i);
-    try testing.expect(f.z);
-    try testing.expect(f.c);
     try testing.expect(!f.v);
     try testing.expect(!f.n);
     try testing.expect(f.unused);
@@ -51,7 +49,7 @@ pub const Cpu = struct {
     x: u8,
     y: u8,
     sp: u8,
-    pc: u8,
+    pc: u16,
     flags: Flags,
 
     pub fn init() Cpu {

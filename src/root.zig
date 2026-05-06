@@ -5,4 +5,6 @@ pub const cpu = @import("cpu.zig");
 
 test {
     _ = @import("cpu.zig");
+    _ = @import("bus.zig");
+    _ = @import("system.zig");
 }
