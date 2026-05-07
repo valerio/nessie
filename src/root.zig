@@ -6,4 +6,6 @@ pub const cpu = @import("cpu.zig");
 test {
     _ = @import("cpu.zig");
     _ = @import("system.zig");
+    _ = @import("mapper.zig");
+    _ = @import("opcodes.zig");
 }
