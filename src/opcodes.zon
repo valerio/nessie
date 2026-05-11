@@ -9,4 +9,25 @@
 // at comptime before use.
 .{
     .{ .op = 0xea, .mnemonic = .nop, .mode = .implied, .bytes = 1 },
+
+    .{ .op = 0xa9, .mnemonic = .lda, .mode = .immediate, .bytes = 2 },
+    .{ .op = 0xa2, .mnemonic = .ldx, .mode = .immediate, .bytes = 2 },
+    .{ .op = 0xa0, .mnemonic = .ldy, .mode = .immediate, .bytes = 2 },
+
+    .{ .op = 0xaa, .mnemonic = .tax, .mode = .implied, .bytes = 1 },
+    .{ .op = 0x8a, .mnemonic = .txa, .mode = .implied, .bytes = 1 },
+    .{ .op = 0xa8, .mnemonic = .tay, .mode = .implied, .bytes = 1 },
+    .{ .op = 0x98, .mnemonic = .tya, .mode = .implied, .bytes = 1 },
+
+    .{ .op = 0xe8, .mnemonic = .inx, .mode = .implied, .bytes = 1 },
+    .{ .op = 0xca, .mnemonic = .dex, .mode = .implied, .bytes = 1 },
+    .{ .op = 0xc8, .mnemonic = .iny, .mode = .implied, .bytes = 1 },
+    .{ .op = 0x88, .mnemonic = .dey, .mode = .implied, .bytes = 1 },
+
+    .{ .op = 0x18, .mnemonic = .clc, .mode = .implied, .bytes = 1 },
+    .{ .op = 0x38, .mnemonic = .sec, .mode = .implied, .bytes = 1 },
+    .{ .op = 0x58, .mnemonic = .cli, .mode = .implied, .bytes = 1 },
+    .{ .op = 0x78, .mnemonic = .sei, .mode = .implied, .bytes = 1 },
+
+    .{ .op = 0x85, .mnemonic = .sta, .mode = .zeroPage, .bytes = 2 },
 }

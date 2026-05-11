@@ -1,5 +1,6 @@
 const std = @import("std");
 const mappers = @import("mapper.zig");
+const opcodes = @import("opcodes.zig");
 const Mapper = mappers.Mapper;
 
 const testing = std.testing;
@@ -26,6 +27,12 @@ pub const System = struct {
     pub fn tick(self: *System) void {
         const opcode = self.busRead(self.cpu.pc);
         self.cpu.pc +%= 1;
+
+        // const instr = opcodes.table[opcode];
+        // TODO:
+        // - fetch operands
+        // - decompose into micro-ops
+        // - execute micro-ops
 
         // TODO: decompose instructions into micro-ops and run until completion
         switch (opcode) {

@@ -1,9 +1,16 @@
 const std = @import("std");
 const testing = std.testing;
 
+// zig fmt: off
 pub const Mnemonic = enum(u6) {
     nop,
-    lda,
+    lda, ldx, ldy,
+    tax, txa, tay, tya,
+    inx, dex,
+    iny, dey,
+    clc, sec,
+    cli, sei,
+    sta,
     kil,
 };
 

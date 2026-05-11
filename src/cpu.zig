@@ -1,4 +1,5 @@
 const std = @import("std");
+const opcodes = @import("opcodes.zig");
 const testing = std.testing;
 
 /// Flags register
@@ -43,6 +44,39 @@ test "flags" {
     const byte = f.toByte();
     try testing.expectEqual(byte, 0x3F);
 }
+
+/// Represents a CPU micro-op type.
+/// The CPU runs one micro-op at a time, each instruction can be broken
+/// down into multiple micro-ops depending on what it does, e.g. LDA
+/// loads a value from memory, which requires at least one read micro-op.
+pub const MicroOp = union(enum) {
+    /// A cycle where the CPU reads a value from memory
+    read: u16,
+    /// A cycle where the CPU writes a value to memory
+    write: struct { addr: u16, value: u8 },
+    /// A cycle where the CPU performs internal operations.
+    /// Bus ops might still happen e.g. during DMA.
+    internal,
+};
+
+pub const Stage = enum {
+    fetch,
+    decode,
+    execute,
+};
+
+pub const Instruction = struct {
+    instr: opcodes.Opcode,
+    stage: Stage = .fetch,
+
+    pub fn next(self: *Instruction) ?MicroOp {
+        switch (self.stage) {
+            .fetch => {},
+            .decode => {},
+            .execute => {},
+        }
+    }
+};
 
 pub const Cpu = struct {
     a: u8,
