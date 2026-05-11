@@ -1,11 +1,14 @@
 const std = @import("std");
 const mappers = @import("mapper.zig");
+const cpu = @import("cpu.zig");
 const opcodes = @import("opcodes.zig");
 const Mapper = mappers.Mapper;
 
 const testing = std.testing;
 
-const Cpu = @import("cpu.zig").Cpu;
+const Cpu = cpu.Cpu;
+const Instruction = cpu.Instruction;
+const MicroOp = cpu.MicroOp;
 
 const internalRamSize = 0x800; // 2KB
 
@@ -25,21 +28,21 @@ pub const System = struct {
     }
 
     pub fn tick(self: *System) void {
-        const opcode = self.busRead(self.cpu.pc);
+        const opcode = opcodes.table[self.busRead(self.cpu.pc)];
         self.cpu.pc +%= 1;
+        var instr = Instruction.init(opcode);
+        var input: ?u8 = null;
 
-        // const instr = opcodes.table[opcode];
-        // TODO:
-        // - fetch operands
-        // - decompose into micro-ops
-        // - execute micro-ops
-
-        // TODO: decompose instructions into micro-ops and run until completion
-        switch (opcode) {
-            0xEA => {}, // Nop
-            else => {
-                std.debug.panic("{} is unimplemented", .{opcode});
-            },
+        while (instr.stage != .done) {
+            const busOp = instr.step(&self.cpu, input) orelse {
+                input = null;
+                continue;
+            };
+            switch (busOp) {
+                .read => |addr| input = self.busRead(addr),
+                .write => |write| self.busWrite(write.addr, write.value),
+                .internal => {},
+            }
         }
     }
 
@@ -79,12 +82,19 @@ pub const System = struct {
     }
 };
 
-test "system ticks NOP" {
+test "system executes LDA immediate" {
     const romdata = [_]u8{0} ** 0x4000;
     var nrom = mappers.Nrom.init(romdata[0..]);
     var system = System.init(nrom.mapper());
-    system.busWrite(system.cpu.pc, 0xea);
+
+    system.busWrite(0x0000, 0xa9);
+    system.busWrite(0x0001, 0x80);
     system.tick();
+
+    try testing.expectEqual(0x80, system.cpu.a);
+    try testing.expect(!system.cpu.flags.z);
+    try testing.expect(system.cpu.flags.n);
+    try testing.expectEqual(0x0002, system.cpu.pc);
 }
 
 test "system writes/reads internal ram" {

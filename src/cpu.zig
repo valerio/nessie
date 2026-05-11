@@ -59,24 +59,56 @@ pub const MicroOp = union(enum) {
     internal,
 };
 
-pub const Stage = enum {
-    fetch,
-    decode,
-    execute,
+// TODO: these should somehow scale up to all instrs or be private
+// per-struct definition (comptime?)
+pub const InstructionStage = enum {
+    start,
+    readValue,
+    done,
 };
+
+pub const Register8 = enum { a, x, y };
 
 pub const Instruction = struct {
-    instr: opcodes.Opcode,
-    stage: Stage = .fetch,
+    opcode: opcodes.Opcode,
+    stage: InstructionStage = .start,
 
-    pub fn next(self: *Instruction) ?MicroOp {
-        switch (self.stage) {
-            .fetch => {},
-            .decode => {},
-            .execute => {},
-        }
+    pub fn init(opcode: opcodes.Opcode) Instruction {
+        return .{ .opcode = opcode };
+    }
+
+    // TODO: dispatch based on opcode table
+    pub fn step(self: *Instruction, cpu: *Cpu, input: ?u8) ?MicroOp {
+        return switch (self.opcode.mnemonic) {
+            .lda => stepLoad(.a, self, cpu, input),
+            .ldx => stepLoad(.x, self, cpu, input),
+            .ldy => stepLoad(.y, self, cpu, input),
+            else => std.debug.panic("instruction {} is unimplemented", .{self.opcode.mnemonic}),
+        };
     }
 };
+// TODO: Move these to their own file
+fn stepLoad(comptime reg: Register8, self: *Instruction, cpu: *Cpu, input: ?u8) ?MicroOp {
+    switch (self.stage) {
+        .start => {
+            if (self.opcode.mode == .immediate) {
+                self.stage = .readValue;
+                const op: MicroOp = .{ .read = cpu.pc };
+                cpu.pc +%= 1;
+                return op;
+            }
+            unreachable;
+        },
+        .readValue => {
+            const value = input orelse std.debug.panic("expected load read input", .{});
+            setNZ(reg, cpu, value);
+            self.stage = .done;
+            return null;
+        },
+        .done => unreachable,
+    }
+    unreachable;
+}
 
 pub const Cpu = struct {
     a: u8,
@@ -97,6 +129,16 @@ pub const Cpu = struct {
         };
     }
 };
+
+fn setNZ(comptime reg: Register8, self: *Cpu, value: u8) void {
+    switch (reg) {
+        .a => self.a = value,
+        .x => self.x = value,
+        .y => self.y = value,
+    }
+    self.flags.z = value == 0;
+    self.flags.n = (value & 0x80) != 0;
+}
 
 test "cpu init" {
     const cpu = Cpu.init();
