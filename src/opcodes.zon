@@ -1,0 +1,12 @@
+// Opcode metadata for the NES cpu, this helps generate comptime mappings and reduce boilerplate.
+// Fields:
+// - op: opcode byte,
+// - mnemonic: identifier of the instruction (family)
+// - mode: addressing mode, affects how operands (if any) are loaded
+// - bytes: number of bytes in the opcode
+//
+// This structure is for more readable definitions, these should be converted to a more compact form
+// at comptime before use.
+.{
+    .{ .op = 0xea, .mnemonic = .nop, .mode = .implied, .bytes = 1 },
+}
