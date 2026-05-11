@@ -91,6 +91,7 @@ pub const Instruction = struct {
 fn stepLoad(comptime reg: Register8, self: *Instruction, cpu: *Cpu, input: ?u8) ?MicroOp {
     switch (self.stage) {
         .start => {
+            // TODO: make addressing generic
             if (self.opcode.mode == .immediate) {
                 self.stage = .readValue;
                 const op: MicroOp = .{ .read = cpu.pc };
