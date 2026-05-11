@@ -1,7 +1,7 @@
 const std = @import("std");
 const Io = std.Io;
 
-const nes_zig_spike = @import("nes_zig_spike");
+const nessie = @import("nessie");
 
 pub fn main() void {
     std.debug.print("Hello, {s}!\n", .{"world"});
