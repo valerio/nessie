@@ -1,6 +1,7 @@
 const std = @import("std");
 const opcodes = @import("opcodes.zig");
 const testing = std.testing;
+const panic = std.debug.panic;
 
 /// Flags register
 /// NV1B DIZC
@@ -68,6 +69,7 @@ pub const InstructionStage = enum {
     readAddr,
     readAddrLow,
     readAddrHigh,
+    indexZeroPage,
     readValue,
     done,
 };
@@ -90,7 +92,7 @@ pub const Instruction = struct {
             .lda => stepLoad(.a, self, cpu, input),
             .ldx => stepLoad(.x, self, cpu, input),
             .ldy => stepLoad(.y, self, cpu, input),
-            else => std.debug.panic("instruction {} is unimplemented", .{self.opcode.mnemonic}),
+            else => panic("instruction {} is unimplemented", .{self.opcode.mnemonic}),
         };
     }
 };
@@ -108,16 +110,16 @@ fn stepLoad(comptime reg: Register8, self: *Instruction, cpu: *Cpu, input: ?u8) 
                     self.stage = .readValue;
                     return op;
                 },
-                .zeroPage => {
+                .zeroPage, .zeroPageX, .zeroPageY => {
                     const op: BusOp = .{ .read = cpu.pc };
                     cpu.pc +%= 1;
                     self.stage = .readAddr;
                     return op;
                 },
                 .absolute => {
-                    self.stage = .readAddrLow;
                     const op: BusOp = .{ .read = cpu.pc };
                     cpu.pc +%= 1;
+                    self.stage = .readAddrLow;
                     return op;
                 },
                 // .absoluteX => {
@@ -126,30 +128,44 @@ fn stepLoad(comptime reg: Register8, self: *Instruction, cpu: *Cpu, input: ?u8) 
                 // .implied => {
 
                 // }
-                else => std.debug.panic("load mode {} is unimplemented for {}", .{ self.opcode.mode, self.opcode.mnemonic }),
+                else => panic("load mode {} is unimplemented for {}", .{ self.opcode.mode, self.opcode.mnemonic }),
             }
             unreachable;
         },
         .readAddr => {
-            const addr = input orelse std.debug.panic("expected read addr input", .{});
+            const baseAddr = input orelse panic("expected read addr input", .{});
+            self.addr = switch (self.opcode.mode) {
+                .zeroPage => baseAddr,
+                .zeroPageX => (baseAddr +% cpu.x) & 0xff,
+                .zeroPageY => (baseAddr +% cpu.y) & 0xff,
+                else => panic("load mode {} does not apply to stage {}", .{ self.opcode.mode, self.stage }),
+            };
+            // zeroPageX/Y take an extra idle cycle (at .indexZeroPage)
+            self.stage = if (self.opcode.mode == .zeroPage) .readValue else .indexZeroPage;
+            const op: BusOp = if (self.opcode.mode == .zeroPage) .{ .read = self.addr } else .idle;
+            return op;
+        },
+        .indexZeroPage => {
             self.stage = .readValue;
-            return .{ .read = addr };
+            return .{ .read = self.addr };
         },
         .readAddrLow => {
-            self.addrLow = input orelse std.debug.panic("expected read addr low input", .{});
+            self.addrLow = input orelse panic("expected read addr low input", .{});
             self.stage = .readAddrHigh;
             const op: BusOp = .{ .read = cpu.pc };
             cpu.pc +%= 1;
             return op;
         },
         .readAddrHigh => {
-            const addrHigh = input orelse std.debug.panic("expected read addr high input", .{});
-            const addr: u16 = (@as(u16, addrHigh) << 8) | @as(u16, self.addrLow orelse std.debug.panic("expected low addr bytes during read addr high", .{}));
+            const addrHigh = input orelse panic("expected read addr high input", .{});
+            const addr: u16 =
+                (@as(u16, addrHigh) << 8) |
+                @as(u16, self.addrLow orelse panic("expected low addr bytes during read addr high", .{}));
             self.stage = .readValue;
             return .{ .read = addr };
         },
         .readValue => {
-            const value = input orelse std.debug.panic("expected load read input", .{});
+            const value = input orelse panic("expected load read input", .{});
             setNZ(reg, cpu, value);
             self.stage = .done;
             return null;

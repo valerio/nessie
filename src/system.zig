@@ -104,10 +104,17 @@ test "instructions execution" {
         operand: []const u8,
         valueAddr: u16,
         expectedPc: u16,
+        startPc: u16 = 0,
+        x: u8 = 0,
+        y: u8 = 0,
     }{
         .{ .opcode = 0xa5, .register = .a, .operand = &.{0x80}, .valueAddr = 0x0080, .expectedPc = 0x0002 }, // lda
         .{ .opcode = 0xa6, .register = .x, .operand = &.{0x80}, .valueAddr = 0x0080, .expectedPc = 0x0002 }, // ldx
         .{ .opcode = 0xa4, .register = .y, .operand = &.{0x80}, .valueAddr = 0x0080, .expectedPc = 0x0002 }, // ldy
+        .{ .opcode = 0xb5, .register = .a, .operand = &.{0x80}, .valueAddr = 0x0084, .expectedPc = 0x0002, .x = 0x04 }, // lda zero page,x
+        .{ .opcode = 0xb4, .register = .y, .operand = &.{0x80}, .valueAddr = 0x0084, .expectedPc = 0x0002, .x = 0x04 }, // ldy zero page,x
+        .{ .opcode = 0xb6, .register = .x, .operand = &.{0x80}, .valueAddr = 0x0084, .expectedPc = 0x0002, .y = 0x04 }, // ldx zero page,y
+        .{ .opcode = 0xb5, .register = .a, .operand = &.{0xff}, .valueAddr = 0x0000, .expectedPc = 0x0102, .startPc = 0x0100, .x = 0x01 }, // zero page,x wraps
         .{ .opcode = 0xad, .register = .a, .operand = &.{ 0x34, 0x12 }, .valueAddr = 0x1234, .expectedPc = 0x0003 }, // lda absolute
         .{ .opcode = 0xae, .register = .x, .operand = &.{ 0x34, 0x12 }, .valueAddr = 0x1234, .expectedPc = 0x0003 }, // ldx absolute
         .{ .opcode = 0xac, .register = .y, .operand = &.{ 0x34, 0x12 }, .valueAddr = 0x1234, .expectedPc = 0x0003 }, // ldy absolute
@@ -118,9 +125,12 @@ test "instructions execution" {
         var nrom = mappers.Nrom.init(romdata[0..]);
         var system = System.init(nrom.mapper());
 
-        system.busWrite(0x0000, case.opcode);
+        system.cpu.pc = case.startPc;
+        system.cpu.x = case.x;
+        system.cpu.y = case.y;
+        system.busWrite(case.startPc, case.opcode);
         for (case.operand, 0..) |byte, index| {
-            system.busWrite(@intCast(0x0001 + index), byte);
+            system.busWrite(@intCast(case.startPc + 1 + index), byte);
         }
         system.busWrite(case.valueAddr, 0x42);
 

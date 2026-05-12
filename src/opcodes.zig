@@ -18,6 +18,8 @@ pub const AddrMode = enum(u4) {
     implied,
     immediate,
     zeroPage,
+    zeroPageX,
+    zeroPageY,
     absolute,
     absoluteX,
 };
