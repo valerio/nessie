@@ -97,6 +97,46 @@ test "system executes LDA immediate" {
     try testing.expectEqual(0x0002, system.cpu.pc);
 }
 
+test "instructions execution" {
+    const cases = [_]struct {
+        opcode: u8,
+        register: cpu.Register8,
+        operand: []const u8,
+        valueAddr: u16,
+        expectedPc: u16,
+    }{
+        .{ .opcode = 0xa5, .register = .a, .operand = &.{0x80}, .valueAddr = 0x0080, .expectedPc = 0x0002 }, // lda
+        .{ .opcode = 0xa6, .register = .x, .operand = &.{0x80}, .valueAddr = 0x0080, .expectedPc = 0x0002 }, // ldx
+        .{ .opcode = 0xa4, .register = .y, .operand = &.{0x80}, .valueAddr = 0x0080, .expectedPc = 0x0002 }, // ldy
+        .{ .opcode = 0xad, .register = .a, .operand = &.{ 0x34, 0x12 }, .valueAddr = 0x1234, .expectedPc = 0x0003 }, // lda absolute
+        .{ .opcode = 0xae, .register = .x, .operand = &.{ 0x34, 0x12 }, .valueAddr = 0x1234, .expectedPc = 0x0003 }, // ldx absolute
+        .{ .opcode = 0xac, .register = .y, .operand = &.{ 0x34, 0x12 }, .valueAddr = 0x1234, .expectedPc = 0x0003 }, // ldy absolute
+    };
+
+    for (cases) |case| {
+        const romdata = [_]u8{0} ** 0x4000;
+        var nrom = mappers.Nrom.init(romdata[0..]);
+        var system = System.init(nrom.mapper());
+
+        system.busWrite(0x0000, case.opcode);
+        for (case.operand, 0..) |byte, index| {
+            system.busWrite(@intCast(0x0001 + index), byte);
+        }
+        system.busWrite(case.valueAddr, 0x42);
+
+        system.tick();
+
+        switch (case.register) {
+            .a => try testing.expectEqual(0x42, system.cpu.a),
+            .x => try testing.expectEqual(0x42, system.cpu.x),
+            .y => try testing.expectEqual(0x42, system.cpu.y),
+        }
+        try testing.expect(!system.cpu.flags.z);
+        try testing.expect(!system.cpu.flags.n);
+        try testing.expectEqual(case.expectedPc, system.cpu.pc);
+    }
+}
+
 test "system writes/reads internal ram" {
     const romdata = [_]u8{0} ** 0x4000;
     var nrom = mappers.Nrom.init(romdata[0..]);

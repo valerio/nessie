@@ -65,6 +65,9 @@ pub const BusOp = union(enum) {
 // per-struct definition (comptime?)
 pub const InstructionStage = enum {
     start,
+    readAddr,
+    readAddrLow,
+    readAddrHigh,
     readValue,
     done,
 };
@@ -74,6 +77,8 @@ pub const Register8 = enum { a, x, y };
 pub const Instruction = struct {
     opcode: opcodes.Opcode,
     stage: InstructionStage = .start,
+    addr: u16 = 0,
+    addrLow: ?u8 = null,
 
     pub fn init(opcode: opcodes.Opcode) Instruction {
         return .{ .opcode = opcode };
@@ -95,13 +100,53 @@ fn stepLoad(comptime reg: Register8, self: *Instruction, cpu: *Cpu, input: ?u8) 
     switch (self.stage) {
         .start => {
             // TODO: make addressing generic
-            if (self.opcode.mode == .immediate) {
-                self.stage = .readValue;
-                const op: BusOp = .{ .read = cpu.pc };
-                cpu.pc +%= 1;
-                return op;
+
+            switch (self.opcode.mode) {
+                .immediate => {
+                    const op: BusOp = .{ .read = cpu.pc };
+                    cpu.pc +%= 1;
+                    self.stage = .readValue;
+                    return op;
+                },
+                .zeroPage => {
+                    const op: BusOp = .{ .read = cpu.pc };
+                    cpu.pc +%= 1;
+                    self.stage = .readAddr;
+                    return op;
+                },
+                .absolute => {
+                    self.stage = .readAddrLow;
+                    const op: BusOp = .{ .read = cpu.pc };
+                    cpu.pc +%= 1;
+                    return op;
+                },
+                // .absoluteX => {
+
+                // }
+                // .implied => {
+
+                // }
+                else => std.debug.panic("load mode {} is unimplemented for {}", .{ self.opcode.mode, self.opcode.mnemonic }),
             }
             unreachable;
+        },
+        .readAddr => {
+            const addr = input orelse std.debug.panic("expected read addr input", .{});
+            self.stage = .readValue;
+            return .{ .read = addr };
+        },
+        .readAddrLow => {
+            self.addrLow = input orelse std.debug.panic("expected read addr low input", .{});
+            self.stage = .readAddrHigh;
+            const op: BusOp = .{ .read = cpu.pc };
+            cpu.pc +%= 1;
+            return op;
+        },
+        .readAddrHigh => {
+            const addrHigh = input orelse std.debug.panic("expected read addr high input", .{});
+            const addr: u16 = (@as(u16, addrHigh) << 8) | @as(u16, self.addrLow orelse std.debug.panic("expected low addr bytes during read addr high", .{}));
+            self.stage = .readValue;
+            return .{ .read = addr };
         },
         .readValue => {
             const value = input orelse std.debug.panic("expected load read input", .{});
