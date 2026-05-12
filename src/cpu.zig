@@ -45,18 +45,20 @@ test "flags" {
     try testing.expectEqual(byte, 0x3F);
 }
 
-/// Represents a CPU micro-op type.
-/// The CPU runs one micro-op at a time, each instruction can be broken
-/// down into multiple micro-ops depending on what it does, e.g. LDA
-/// loads a value from memory, which requires at least one read micro-op.
-pub const MicroOp = union(enum) {
-    /// A cycle where the CPU reads a value from memory
+/// Represents a bus operation.
+/// Instructions are broken down into separate stages, e.g.
+/// LDA reads from memory -> stores in A -> done
+/// At each stage, the instruction might perform a bus read/write or nothing.
+/// Each step is typically 1 cpu cycle, and bus read/writes can trigger side-effects.
+///
+/// This enum is essentially representing what is done at a yield point in a CPU instruction.
+pub const BusOp = union(enum) {
+    /// A cycle where the instruction is waiting for a read
     read: u16,
-    /// A cycle where the CPU writes a value to memory
+    /// A cycle where the instruction is waiting for a write
     write: struct { addr: u16, value: u8 },
-    /// A cycle where the CPU performs internal operations.
-    /// Bus ops might still happen e.g. during DMA.
-    internal,
+    /// A cycle where no bus operation is performed
+    idle,
 };
 
 // TODO: these should somehow scale up to all instrs or be private
@@ -78,7 +80,7 @@ pub const Instruction = struct {
     }
 
     // TODO: dispatch based on opcode table
-    pub fn step(self: *Instruction, cpu: *Cpu, input: ?u8) ?MicroOp {
+    pub fn step(self: *Instruction, cpu: *Cpu, input: ?u8) ?BusOp {
         return switch (self.opcode.mnemonic) {
             .lda => stepLoad(.a, self, cpu, input),
             .ldx => stepLoad(.x, self, cpu, input),
@@ -87,14 +89,15 @@ pub const Instruction = struct {
         };
     }
 };
+
 // TODO: Move these to their own file
-fn stepLoad(comptime reg: Register8, self: *Instruction, cpu: *Cpu, input: ?u8) ?MicroOp {
+fn stepLoad(comptime reg: Register8, self: *Instruction, cpu: *Cpu, input: ?u8) ?BusOp {
     switch (self.stage) {
         .start => {
             // TODO: make addressing generic
             if (self.opcode.mode == .immediate) {
                 self.stage = .readValue;
-                const op: MicroOp = .{ .read = cpu.pc };
+                const op: BusOp = .{ .read = cpu.pc };
                 cpu.pc +%= 1;
                 return op;
             }
@@ -112,22 +115,15 @@ fn stepLoad(comptime reg: Register8, self: *Instruction, cpu: *Cpu, input: ?u8) 
 }
 
 pub const Cpu = struct {
-    a: u8,
-    x: u8,
-    y: u8,
-    sp: u8,
-    pc: u16,
-    flags: Flags,
+    a: u8 = 0,
+    x: u8 = 0,
+    y: u8 = 0,
+    sp: u8 = 0xFD,
+    pc: u16 = 0,
+    flags: Flags = Flags{ .i = true },
 
     pub fn init() Cpu {
-        return .{
-            .a = 0,
-            .x = 0,
-            .y = 0,
-            .sp = 0xFD,
-            .pc = 0, // TODO: should be reading from 0xfffc and 0xfffd on reset
-            .flags = Flags{ .i = true }, // 0x24
-        };
+        return .{};
     }
 };
 

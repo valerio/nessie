@@ -8,7 +8,7 @@ const testing = std.testing;
 
 const Cpu = cpu.Cpu;
 const Instruction = cpu.Instruction;
-const MicroOp = cpu.MicroOp;
+const BusOp = cpu.BusOp;
 
 const internalRamSize = 0x800; // 2KB
 
@@ -41,7 +41,7 @@ pub const System = struct {
             switch (busOp) {
                 .read => |addr| input = self.busRead(addr),
                 .write => |write| self.busWrite(write.addr, write.value),
-                .internal => {},
+                .idle => {},
             }
         }
     }
