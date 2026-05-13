@@ -62,46 +62,45 @@ pub const BusOp = union(enum) {
     idle,
 };
 
-// TODO: these should somehow scale up to all instrs or be private
-// per-struct definition (comptime?)
-pub const InstructionStage = enum {
-    resolveAddr,
-    readValue,
-    done,
-};
-
-const AddrStage = enum {
-    start,
-    readOperand,
-    readOperandLow,
-    readOperandHigh,
-    indexZeroPage,
-    indexIndirectX,
-    readIndirectLow,
-    readIndirectHigh,
-    dummyRead,
-    done,
-};
-
-const AddrResult = union(enum) {
-    pending: BusOp,
-    done: u16,
-};
-
+/// Implements instruction addressing resolution as a state machine.
+/// In a 6502, the same instruction can get its operands in a variety of modes (see opcodes.AddrMode)
+///
+/// Some modes might require multiple cycles/bus reads to resolve the address, this FSM essentially
+/// Allows the caller to run side-effects or emulation ticks in-between cycles.
 const AddrResolver = struct {
-    stage: AddrStage = .start,
-    addr: u16 = 0,
-    baseAddr: u16 = 0,
-    lowByte: ?u8 = null,
+    state: AddrState = .start,
+
+    /// Some states carry additional data, especially when they work in tandem with other
+    /// states, e.g. absolute addressing needs to read the low byte first, then pass it
+    /// to the stage where the low byte is read, then combine them.
+    ///
+    /// start -> readOperandLow -> readOperandHigh (low) -> resolved (addr)
+    const AddrState = union(enum) {
+        start,
+        readOperand,
+        readOperandLow,
+        readOperandHigh: struct { low: u8 },
+        indexZeroPage: struct { addr: u8 },
+        indexIndirectX: struct { zpAddr: u8 },
+        readIndirectLow: struct { zpAddr: u8 },
+        readIndirectHigh: struct { zpAddr: u8, low: u8 },
+        dummyRead: struct { addr: u16 },
+        resolved: struct { addr: u16 },
+    };
+
+    const AddrResult = union(enum) {
+        pending: BusOp,
+        done: u16,
+    };
 
     fn step(self: *AddrResolver, mode: opcodes.AddrMode, cpu: *Cpu, input: ?u8) AddrResult {
-        switch (self.stage) {
+        switch (self.state) {
             .start => {
                 const addr = cpu.pc;
                 cpu.pc +%= 1;
 
-                self.stage = switch (mode) {
-                    .immediate => .done,
+                self.state = switch (mode) {
+                    .immediate => .{ .resolved = .{ .addr = addr } },
                     .zeroPage, .zeroPageX, .zeroPageY, .indirectX, .indirectY => .readOperand,
                     .absolute, .absoluteX, .absoluteY => .readOperandLow,
                     else => panic("address mode {} is unimplemented", .{mode}),
@@ -114,100 +113,108 @@ const AddrResolver = struct {
             },
             .readOperand => {
                 const baseAddr = input orelse panic("expected read operand input", .{});
-                self.addr = switch (mode) {
-                    .zeroPage => baseAddr,
-                    .zeroPageX => baseAddr +% cpu.x,
-                    .zeroPageY => baseAddr +% cpu.y,
-                    .indirectX => baseAddr +% cpu.x,
-                    .indirectY => baseAddr,
-                    else => panic("address mode {} does not apply to stage {}", .{ mode, self.stage }),
-                };
 
-                self.stage = switch (mode) {
-                    .zeroPage => .done,
-                    .zeroPageX, .zeroPageY => .indexZeroPage,
-                    .indirectX => .indexIndirectX,
-                    .indirectY => .readIndirectLow,
-                    else => panic("address mode {} does not apply to stage {}", .{ mode, self.stage }),
-                };
-
-                return switch (mode) {
-                    .zeroPage => .{ .done = self.addr },
-                    .indirectY => .{ .pending = .{ .read = self.addr } },
-                    .zeroPageX, .zeroPageY, .indirectX => .{ .pending = .idle },
-                    else => panic("address mode {} does not apply to stage {}", .{ mode, self.stage }),
-                };
+                switch (mode) {
+                    .zeroPage => {
+                        self.state = .{ .resolved = .{ .addr = baseAddr } };
+                        return .{ .done = baseAddr };
+                    },
+                    .zeroPageX => {
+                        self.state = .{ .indexZeroPage = .{ .addr = baseAddr +% cpu.x } };
+                        return .{ .pending = .idle };
+                    },
+                    .zeroPageY => {
+                        self.state = .{ .indexZeroPage = .{ .addr = baseAddr +% cpu.y } };
+                        return .{ .pending = .idle };
+                    },
+                    .indirectX => {
+                        self.state = .{ .indexIndirectX = .{ .zpAddr = baseAddr +% cpu.x } };
+                        return .{ .pending = .idle };
+                    },
+                    .indirectY => {
+                        self.state = .{ .readIndirectLow = .{ .zpAddr = baseAddr } };
+                        return .{ .pending = .{ .read = baseAddr } };
+                    },
+                    else => panic("address mode {} does not apply to state {}", .{ mode, self.state }),
+                }
             },
-            .indexZeroPage => {
-                self.stage = .done;
-                return .{ .done = self.addr };
+            .indexZeroPage => |state| {
+                self.state = .{ .resolved = .{ .addr = state.addr } };
+                return .{ .done = state.addr };
             },
-            .indexIndirectX => {
-                self.stage = .readIndirectLow;
-                return .{ .pending = .{ .read = self.addr } };
+            .indexIndirectX => |state| {
+                self.state = .{ .readIndirectLow = .{ .zpAddr = state.zpAddr } };
+                return .{ .pending = .{ .read = state.zpAddr } };
             },
             .readOperandLow => {
-                self.lowByte = input orelse panic("expected read operand low input", .{});
-                self.stage = .readOperandHigh;
+                const low = input orelse panic("expected read operand low input", .{});
+                self.state = .{ .readOperandHigh = .{ .low = low } };
                 const op: BusOp = .{ .read = cpu.pc };
                 cpu.pc +%= 1;
                 return .{ .pending = op };
             },
-            .readOperandHigh => {
+            .readOperandHigh => |state| {
                 const highByte = input orelse panic("expected read operand high input", .{});
-                self.baseAddr =
+                const baseAddr =
                     (@as(u16, highByte) << 8) |
-                    @as(u16, self.lowByte orelse panic("expected low operand byte during read operand high", .{}));
+                    @as(u16, state.low);
                 const index: u16 = switch (mode) {
                     .absolute => 0,
                     .absoluteX => cpu.x,
                     .absoluteY => cpu.y,
-                    else => panic("address mode {} does not apply to stage {}", .{ mode, self.stage }),
+                    else => panic("address mode {} does not apply to state {}", .{ mode, self.state }),
                 };
-                self.addr = self.baseAddr +% index;
+                const addr = baseAddr +% index;
 
-                if (index != 0 and pageCrossed(self.baseAddr, self.addr)) {
-                    self.stage = .dummyRead;
-                    return .{ .pending = .{ .read = dummyReadAddr(self.baseAddr, self.addr) } };
+                if (index != 0 and pageCrossed(baseAddr, addr)) {
+                    self.state = .{ .dummyRead = .{ .addr = addr } };
+                    return .{ .pending = .{ .read = dummyReadAddr(baseAddr, addr) } };
                 }
 
-                self.stage = .done;
-                return .{ .done = self.addr };
+                self.state = .{ .resolved = .{ .addr = addr } };
+                return .{ .done = addr };
             },
-            .readIndirectLow => {
-                self.lowByte = input orelse panic("expected read indirect low input", .{});
-                self.stage = .readIndirectHigh;
-                return .{ .pending = .{ .read = (self.addr +% 1) & 0xff } };
+            .readIndirectLow => |state| {
+                const low = input orelse panic("expected read indirect low input", .{});
+                self.state = .{ .readIndirectHigh = .{ .zpAddr = state.zpAddr, .low = low } };
+                return .{ .pending = .{ .read = state.zpAddr +% 1 } };
             },
-            .readIndirectHigh => {
+            .readIndirectHigh => |state| {
                 const highByte = input orelse panic("expected read indirect high input", .{});
-                self.baseAddr =
+                const baseAddr =
                     (@as(u16, highByte) << 8) |
-                    @as(u16, self.lowByte orelse panic("expected low indirect byte during read indirect high", .{}));
+                    @as(u16, state.low);
                 switch (mode) {
                     .indirectX => {
-                        self.addr = self.baseAddr;
-                        self.stage = .done;
-                        return .{ .done = self.addr };
+                        self.state = .{ .resolved = .{ .addr = baseAddr } };
+                        return .{ .done = baseAddr };
                     },
                     .indirectY => {
-                        self.addr = self.baseAddr +% cpu.y;
-                        if (cpu.y != 0 and pageCrossed(self.baseAddr, self.addr)) {
-                            self.stage = .dummyRead;
-                            return .{ .pending = .{ .read = dummyReadAddr(self.baseAddr, self.addr) } };
+                        const addr = baseAddr +% cpu.y;
+                        if (cpu.y != 0 and pageCrossed(baseAddr, addr)) {
+                            self.state = .{ .dummyRead = .{ .addr = addr } };
+                            return .{ .pending = .{ .read = dummyReadAddr(baseAddr, addr) } };
                         }
-                        self.stage = .done;
-                        return .{ .done = self.addr };
+                        self.state = .{ .resolved = .{ .addr = addr } };
+                        return .{ .done = addr };
                     },
-                    else => panic("address mode {} does not apply to stage {}", .{ mode, self.stage }),
+                    else => panic("address mode {} does not apply to state {}", .{ mode, self.state }),
                 }
             },
-            .dummyRead => {
-                self.stage = .done;
-                return .{ .done = self.addr };
+            .dummyRead => |state| {
+                self.state = .{ .resolved = .{ .addr = state.addr } };
+                return .{ .done = state.addr };
             },
-            .done => return .{ .done = self.addr },
+            .resolved => |state| return .{ .done = state.addr },
         }
+    }
+
+    fn pageCrossed(base: u16, addr: u16) bool {
+        return (base & 0xff00) != (addr & 0xff00);
+    }
+
+    fn dummyReadAddr(base: u16, addr: u16) u16 {
+        return (base & 0xff00) | (addr & 0x00ff);
     }
 };
 
@@ -217,6 +224,14 @@ pub const Instruction = struct {
     opcode: opcodes.Opcode,
     stage: InstructionStage = .resolveAddr,
     addrResolver: AddrResolver = .{},
+
+    // TODO: these should somehow scale up to all instrs or be private
+    // per-struct definition (comptime?)
+    pub const InstructionStage = enum {
+        resolveAddr,
+        readValue,
+        done,
+    };
 
     pub fn init(opcode: opcodes.Opcode) Instruction {
         return .{ .opcode = opcode };
@@ -255,14 +270,6 @@ fn stepLoad(comptime reg: Register8, self: *Instruction, cpu: *Cpu, input: ?u8) 
         .done => unreachable,
     }
     unreachable;
-}
-
-fn pageCrossed(base: u16, addr: u16) bool {
-    return (base & 0xff00) != (addr & 0xff00);
-}
-
-fn dummyReadAddr(base: u16, addr: u16) u16 {
-    return (base & 0xff00) | (addr & 0x00ff);
 }
 
 pub const Cpu = struct {
