@@ -41,7 +41,7 @@ pub const System = struct {
             switch (busOp) {
                 .read => |addr| input = self.busRead(addr),
                 .write => |write| self.busWrite(write.addr, write.value),
-                .idle => {},
+                .idle => input = null,
             }
         }
     }
