@@ -22,6 +22,9 @@ pub const AddrMode = enum(u4) {
     zeroPageY,
     absolute,
     absoluteX,
+    absoluteY,
+    indirectX,
+    indirectY,
 };
 
 /// A parsed NES opcode specification

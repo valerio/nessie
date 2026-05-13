@@ -22,6 +22,12 @@
     .{ .op = 0xad, .mnemonic = .lda, .mode = .absolute, .bytes = 3 },
     .{ .op = 0xae, .mnemonic = .ldx, .mode = .absolute, .bytes = 3 },
     .{ .op = 0xac, .mnemonic = .ldy, .mode = .absolute, .bytes = 3 },
+    .{ .op = 0xbd, .mnemonic = .lda, .mode = .absoluteX, .bytes = 3 },
+    .{ .op = 0xb9, .mnemonic = .lda, .mode = .absoluteY, .bytes = 3 },
+    .{ .op = 0xbe, .mnemonic = .ldx, .mode = .absoluteY, .bytes = 3 },
+    .{ .op = 0xbc, .mnemonic = .ldy, .mode = .absoluteX, .bytes = 3 },
+    .{ .op = 0xa1, .mnemonic = .lda, .mode = .indirectX, .bytes = 2 },
+    .{ .op = 0xb1, .mnemonic = .lda, .mode = .indirectY, .bytes = 2 },
 
     .{ .op = 0xaa, .mnemonic = .tax, .mode = .implied, .bytes = 1 },
     .{ .op = 0x8a, .mnemonic = .txa, .mode = .implied, .bytes = 1 },

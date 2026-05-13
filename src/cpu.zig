@@ -66,10 +66,14 @@ pub const BusOp = union(enum) {
 // per-struct definition (comptime?)
 pub const InstructionStage = enum {
     start,
-    readAddr,
-    readAddrLow,
-    readAddrHigh,
+    readOperand,
+    readOperandLow,
+    readOperandHigh,
     indexZeroPage,
+    indexIndirectX,
+    readIndirectLow,
+    readIndirectHigh,
+    dummyRead,
     readValue,
     done,
 };
@@ -80,7 +84,8 @@ pub const Instruction = struct {
     opcode: opcodes.Opcode,
     stage: InstructionStage = .start,
     addr: u16 = 0,
-    addrLow: ?u8 = null,
+    baseAddr: u16 = 0,
+    lowByte: ?u8 = null,
 
     pub fn init(opcode: opcodes.Opcode) Instruction {
         return .{ .opcode = opcode };
@@ -98,71 +103,113 @@ pub const Instruction = struct {
 };
 
 // TODO: Move these to their own file
+// implements a state machine for all LD* instructions
 fn stepLoad(comptime reg: Register8, self: *Instruction, cpu: *Cpu, input: ?u8) ?BusOp {
     switch (self.stage) {
         .start => {
             // TODO: make addressing generic
-
-            switch (self.opcode.mode) {
-                .immediate => {
-                    const op: BusOp = .{ .read = cpu.pc };
-                    cpu.pc +%= 1;
-                    self.stage = .readValue;
-                    return op;
-                },
-                .zeroPage, .zeroPageX, .zeroPageY => {
-                    const op: BusOp = .{ .read = cpu.pc };
-                    cpu.pc +%= 1;
-                    self.stage = .readAddr;
-                    return op;
-                },
-                .absolute => {
-                    const op: BusOp = .{ .read = cpu.pc };
-                    cpu.pc +%= 1;
-                    self.stage = .readAddrLow;
-                    return op;
-                },
-                // .absoluteX => {
-
-                // }
-                // .implied => {
-
-                // }
+            const op: BusOp = .{ .read = cpu.pc };
+            cpu.pc +%= 1;
+            self.stage = switch (self.opcode.mode) {
+                .immediate => .readValue,
+                .zeroPage, .zeroPageX, .zeroPageY, .indirectX, .indirectY => .readOperand,
+                .absolute, .absoluteX, .absoluteY => .readOperandLow,
                 else => panic("load mode {} is unimplemented for {}", .{ self.opcode.mode, self.opcode.mnemonic }),
-            }
-            unreachable;
+            };
+            return op;
         },
-        .readAddr => {
+        .readOperand => {
             const baseAddr = input orelse panic("expected read addr input", .{});
             self.addr = switch (self.opcode.mode) {
                 .zeroPage => baseAddr,
-                .zeroPageX => (baseAddr +% cpu.x) & 0xff,
-                .zeroPageY => (baseAddr +% cpu.y) & 0xff,
+                .zeroPageX => baseAddr +% cpu.x,
+                .zeroPageY => baseAddr +% cpu.y,
+                .indirectX => baseAddr +% cpu.x,
+                .indirectY => baseAddr,
                 else => panic("load mode {} does not apply to stage {}", .{ self.opcode.mode, self.stage }),
             };
-            // zeroPageX/Y take an extra idle cycle (at .indexZeroPage)
-            self.stage = if (self.opcode.mode == .zeroPage) .readValue else .indexZeroPage;
-            const op: BusOp = if (self.opcode.mode == .zeroPage) .{ .read = self.addr } else .idle;
-            return op;
+
+            self.stage = switch (self.opcode.mode) {
+                .zeroPage => .readValue,
+                .zeroPageX, .zeroPageY => .indexZeroPage,
+                .indirectX => .indexIndirectX,
+                .indirectY => .readIndirectLow,
+                else => panic("load mode {} does not apply to stage {}", .{ self.opcode.mode, self.stage }),
+            };
+
+            return switch (self.opcode.mode) {
+                .zeroPage, .indirectY => .{ .read = self.addr },
+                .zeroPageX, .zeroPageY, .indirectX => .idle,
+                else => panic("load mode {} does not apply to stage {}", .{ self.opcode.mode, self.stage }),
+            };
         },
         .indexZeroPage => {
             self.stage = .readValue;
             return .{ .read = self.addr };
         },
-        .readAddrLow => {
-            self.addrLow = input orelse panic("expected read addr low input", .{});
-            self.stage = .readAddrHigh;
+        .indexIndirectX => {
+            self.stage = .readIndirectLow;
+            return .{ .read = self.addr };
+        },
+        .readOperandLow => {
+            self.lowByte = input orelse panic("expected read addr low input", .{});
+            self.stage = .readOperandHigh;
             const op: BusOp = .{ .read = cpu.pc };
             cpu.pc +%= 1;
             return op;
         },
-        .readAddrHigh => {
+        .readOperandHigh => {
             const addrHigh = input orelse panic("expected read addr high input", .{});
-            const addr: u16 =
+            self.baseAddr =
                 (@as(u16, addrHigh) << 8) |
-                @as(u16, self.addrLow orelse panic("expected low addr bytes during read addr high", .{}));
+                @as(u16, self.lowByte orelse panic("expected low addr bytes during read addr high", .{}));
+            const index: u16 = switch (self.opcode.mode) {
+                .absolute => 0,
+                .absoluteX => cpu.x,
+                .absoluteY => cpu.y,
+                else => panic("load mode {} does not apply to stage {}", .{ self.opcode.mode, self.stage }),
+            };
+            self.addr = self.baseAddr +% index;
+
+            if (index != 0 and pageCrossed(self.baseAddr, self.addr)) {
+                self.stage = .dummyRead;
+                return .{ .read = dummyReadAddr(self.baseAddr, self.addr) };
+            }
+
             self.stage = .readValue;
-            return .{ .read = addr };
+            return .{ .read = self.addr };
+        },
+        .readIndirectLow => {
+            self.lowByte = input orelse panic("expected read pointer low input", .{});
+            self.stage = .readIndirectHigh;
+            return .{ .read = (self.addr +% 1) & 0xff };
+        },
+        .readIndirectHigh => {
+            const pointerHigh = input orelse panic("expected read pointer high input", .{});
+            self.baseAddr =
+                (@as(u16, pointerHigh) << 8) |
+                @as(u16, self.lowByte orelse panic("expected low pointer byte during read pointer high", .{}));
+            switch (self.opcode.mode) {
+                .indirectX => {
+                    self.addr = self.baseAddr;
+                    self.stage = .readValue;
+                    return .{ .read = self.addr };
+                },
+                .indirectY => {
+                    self.addr = self.baseAddr +% cpu.y;
+                    if (cpu.y != 0 and pageCrossed(self.baseAddr, self.addr)) {
+                        self.stage = .dummyRead;
+                        return .{ .read = dummyReadAddr(self.baseAddr, self.addr) };
+                    }
+                    self.stage = .readValue;
+                    return .{ .read = self.addr };
+                },
+                else => panic("load mode {} does not apply to stage {}", .{ self.opcode.mode, self.stage }),
+            }
+        },
+        .dummyRead => {
+            self.stage = .readValue;
+            return .{ .read = self.addr };
         },
         .readValue => {
             const value = input orelse panic("expected load read input", .{});
@@ -173,6 +220,14 @@ fn stepLoad(comptime reg: Register8, self: *Instruction, cpu: *Cpu, input: ?u8) 
         .done => unreachable,
     }
     unreachable;
+}
+
+fn pageCrossed(base: u16, addr: u16) bool {
+    return (base & 0xff00) != (addr & 0xff00);
+}
+
+fn dummyReadAddr(base: u16, addr: u16) u16 {
+    return (base & 0xff00) | (addr & 0x00ff);
 }
 
 pub const Cpu = struct {

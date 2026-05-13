@@ -86,38 +86,49 @@ test "system executes LDA immediate" {
     const romdata = [_]u8{0} ** 0x4000;
     var nrom = mappers.Nrom.init(romdata[0..]);
     var system = System.init(nrom.mapper());
+    const testPc: u16 = 0x0200;
 
-    system.busWrite(0x0000, 0xa9);
-    system.busWrite(0x0001, 0x80);
+    system.cpu.pc = testPc;
+    system.busWrite(testPc, 0xa9);
+    system.busWrite(testPc + 1, 0x80);
     system.tick();
 
     try testing.expectEqual(0x80, system.cpu.a);
     try testing.expect(!system.cpu.flags.z);
     try testing.expect(system.cpu.flags.n);
-    try testing.expectEqual(0x0002, system.cpu.pc);
+    try testing.expectEqual(testPc + 2, system.cpu.pc);
 }
 
 test "instructions execution" {
+    const testPc: u16 = 0x0200;
     const cases = [_]struct {
         opcode: u8,
         register: cpu.Register8,
         operand: []const u8,
         valueAddr: u16,
-        expectedPc: u16,
-        startPc: u16 = 0,
+        pointerAddr: ?u8 = null,
+        pointerValue: u16 = 0,
         x: u8 = 0,
         y: u8 = 0,
     }{
-        .{ .opcode = 0xa5, .register = .a, .operand = &.{0x80}, .valueAddr = 0x0080, .expectedPc = 0x0002 }, // lda
-        .{ .opcode = 0xa6, .register = .x, .operand = &.{0x80}, .valueAddr = 0x0080, .expectedPc = 0x0002 }, // ldx
-        .{ .opcode = 0xa4, .register = .y, .operand = &.{0x80}, .valueAddr = 0x0080, .expectedPc = 0x0002 }, // ldy
-        .{ .opcode = 0xb5, .register = .a, .operand = &.{0x80}, .valueAddr = 0x0084, .expectedPc = 0x0002, .x = 0x04 }, // lda zero page,x
-        .{ .opcode = 0xb4, .register = .y, .operand = &.{0x80}, .valueAddr = 0x0084, .expectedPc = 0x0002, .x = 0x04 }, // ldy zero page,x
-        .{ .opcode = 0xb6, .register = .x, .operand = &.{0x80}, .valueAddr = 0x0084, .expectedPc = 0x0002, .y = 0x04 }, // ldx zero page,y
-        .{ .opcode = 0xb5, .register = .a, .operand = &.{0xff}, .valueAddr = 0x0000, .expectedPc = 0x0102, .startPc = 0x0100, .x = 0x01 }, // zero page,x wraps
-        .{ .opcode = 0xad, .register = .a, .operand = &.{ 0x34, 0x12 }, .valueAddr = 0x1234, .expectedPc = 0x0003 }, // lda absolute
-        .{ .opcode = 0xae, .register = .x, .operand = &.{ 0x34, 0x12 }, .valueAddr = 0x1234, .expectedPc = 0x0003 }, // ldx absolute
-        .{ .opcode = 0xac, .register = .y, .operand = &.{ 0x34, 0x12 }, .valueAddr = 0x1234, .expectedPc = 0x0003 }, // ldy absolute
+        .{ .opcode = 0xa5, .register = .a, .operand = &.{0x80}, .valueAddr = 0x0080 }, // lda
+        .{ .opcode = 0xa6, .register = .x, .operand = &.{0x80}, .valueAddr = 0x0080 }, // ldx
+        .{ .opcode = 0xa4, .register = .y, .operand = &.{0x80}, .valueAddr = 0x0080 }, // ldy
+        .{ .opcode = 0xb5, .register = .a, .operand = &.{0x80}, .valueAddr = 0x0084, .x = 0x04 }, // lda zero page,x
+        .{ .opcode = 0xb4, .register = .y, .operand = &.{0x80}, .valueAddr = 0x0084, .x = 0x04 }, // ldy zero page,x
+        .{ .opcode = 0xb6, .register = .x, .operand = &.{0x80}, .valueAddr = 0x0084, .y = 0x04 }, // ldx zero page,y
+        .{ .opcode = 0xb5, .register = .a, .operand = &.{0xff}, .valueAddr = 0x0000, .x = 0x01 }, // zero page,x wraps
+        .{ .opcode = 0xad, .register = .a, .operand = &.{ 0x34, 0x12 }, .valueAddr = 0x1234 }, // lda absolute
+        .{ .opcode = 0xae, .register = .x, .operand = &.{ 0x34, 0x12 }, .valueAddr = 0x1234 }, // ldx absolute
+        .{ .opcode = 0xac, .register = .y, .operand = &.{ 0x34, 0x12 }, .valueAddr = 0x1234 }, // ldy absolute
+        .{ .opcode = 0xbd, .register = .a, .operand = &.{ 0x30, 0x12 }, .valueAddr = 0x1234, .x = 0x04 }, // lda absolute,x
+        .{ .opcode = 0xb9, .register = .a, .operand = &.{ 0xff, 0x12 }, .valueAddr = 0x1300, .y = 0x01 }, // lda absolute,y page-cross
+        .{ .opcode = 0xbe, .register = .x, .operand = &.{ 0x30, 0x12 }, .valueAddr = 0x1234, .y = 0x04 }, // ldx absolute,y
+        .{ .opcode = 0xbc, .register = .y, .operand = &.{ 0x30, 0x12 }, .valueAddr = 0x1234, .x = 0x04 }, // ldy absolute,x
+        .{ .opcode = 0xa1, .register = .a, .operand = &.{0x80}, .valueAddr = 0x1234, .pointerAddr = 0x84, .pointerValue = 0x1234, .x = 0x04 }, // lda (indirect,x)
+        .{ .opcode = 0xa1, .register = .a, .operand = &.{0xff}, .valueAddr = 0x1234, .pointerAddr = 0x00, .pointerValue = 0x1234, .x = 0x01 }, // lda (indirect,x) wraps pointer
+        .{ .opcode = 0xb1, .register = .a, .operand = &.{0x80}, .valueAddr = 0x1234, .pointerAddr = 0x80, .pointerValue = 0x1230, .y = 0x04 }, // lda (indirect),y
+        .{ .opcode = 0xb1, .register = .a, .operand = &.{0xff}, .valueAddr = 0x1300, .pointerAddr = 0xff, .pointerValue = 0x12ff, .y = 0x01 }, // lda (indirect),y wraps pointer and page-crosses
     };
 
     for (cases) |case| {
@@ -125,12 +136,17 @@ test "instructions execution" {
         var nrom = mappers.Nrom.init(romdata[0..]);
         var system = System.init(nrom.mapper());
 
-        system.cpu.pc = case.startPc;
+        system.cpu.pc = testPc;
         system.cpu.x = case.x;
         system.cpu.y = case.y;
-        system.busWrite(case.startPc, case.opcode);
+        system.busWrite(testPc, case.opcode);
         for (case.operand, 0..) |byte, index| {
-            system.busWrite(@intCast(case.startPc + 1 + index), byte);
+            const operandAddr: u16 = testPc + @as(u16, @intCast(1 + index));
+            system.busWrite(operandAddr, byte);
+        }
+        if (case.pointerAddr) |pointerAddr| {
+            system.busWrite(pointerAddr, @truncate(case.pointerValue));
+            system.busWrite(pointerAddr +% 1, @truncate(case.pointerValue >> 8));
         }
         system.busWrite(case.valueAddr, 0x42);
 
@@ -143,7 +159,8 @@ test "instructions execution" {
         }
         try testing.expect(!system.cpu.flags.z);
         try testing.expect(!system.cpu.flags.n);
-        try testing.expectEqual(case.expectedPc, system.cpu.pc);
+        const expectedPc = testPc + @as(u16, @intCast(1 + case.operand.len));
+        try testing.expectEqual(expectedPc, system.cpu.pc);
     }
 }
 
