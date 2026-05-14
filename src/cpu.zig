@@ -67,6 +67,8 @@ pub const BusOp = union(enum) {
 ///
 /// Some modes might require multiple cycles/bus reads to resolve the address, this FSM essentially
 /// Allows the caller to run side-effects or emulation ticks in-between cycles.
+///
+/// TODO: convert to micro-ops?
 const AddrResolver = struct {
     state: AddrState = .start,
 
@@ -220,10 +222,17 @@ const AddrResolver = struct {
 
 pub const Register8 = enum { a, x, y };
 
+const StatusFlag = enum { c, i };
+
 const MicroOp = union(enum) {
+    dummyReadPc,
     resolveAddr,
     readValue,
     loadRegSetNZ: Register8,
+    transferRegSetNZ: struct { src: Register8, dst: Register8 },
+    incrementReg: Register8,
+    decrementReg: Register8,
+    setFlag: struct { flag: StatusFlag, value: bool },
     done,
 };
 
@@ -236,48 +245,70 @@ pub const Instruction = struct {
 
     pub fn init(opcode: opcodes.Opcode) @This() {
         return .{ .opcode = opcode, .ops = switch (opcode.mnemonic) {
+            .nop => impliedOps(.done),
             .lda => loadOps(.a),
             .ldx => loadOps(.x),
             .ldy => loadOps(.y),
-            else => &.{.done},
+            .tax => impliedOps(.{ .transferRegSetNZ = .{ .src = .a, .dst = .x } }),
+            .txa => impliedOps(.{ .transferRegSetNZ = .{ .src = .x, .dst = .a } }),
+            .tay => impliedOps(.{ .transferRegSetNZ = .{ .src = .a, .dst = .y } }),
+            .tya => impliedOps(.{ .transferRegSetNZ = .{ .src = .y, .dst = .a } }),
+            .inx => impliedOps(.{ .incrementReg = .x }),
+            .dex => impliedOps(.{ .decrementReg = .x }),
+            .iny => impliedOps(.{ .incrementReg = .y }),
+            .dey => impliedOps(.{ .decrementReg = .y }),
+            .clc => impliedOps(.{ .setFlag = .{ .flag = .c, .value = false } }),
+            .sec => impliedOps(.{ .setFlag = .{ .flag = .c, .value = true } }),
+            .cli => impliedOps(.{ .setFlag = .{ .flag = .i, .value = false } }),
+            .sei => impliedOps(.{ .setFlag = .{ .flag = .i, .value = true } }),
+            else => panic("unimplemented opcode: {}", .{opcode.mnemonic}),
         } };
     }
 
     pub fn step(self: *@This(), cpu: *Cpu, input: ?u8) ?BusOp {
         while (true) {
             const op = self.ops[self.opStep];
+            var busOp: ?BusOp = null;
+            var advance = true;
+
             switch (op) {
                 .resolveAddr => switch (self.addrResolver.step(self.opcode.mode, cpu, input)) {
-                    .pending => |busOp| return busOp,
-                    .done => |addr| {
-                        self.addr = addr;
-                        self.opStep += 1;
+                    .pending => |pending| {
+                        busOp = pending;
+                        advance = false;
                     },
+                    .done => |addr| self.addr = addr,
                 },
-                .readValue => {
-                    self.opStep += 1;
-                    return .{ .read = self.addr };
-                },
-                .loadRegSetNZ => |reg| {
-                    const value = input orelse panic("expected input for stage {s}", .{@tagName(op)});
-                    self.opStep += 1;
-                    setNZRuntime(reg, cpu, value);
-                },
-                .done => {
-                    return null;
-                },
+                .dummyReadPc => busOp = .{ .read = cpu.pc },
+                .readValue => busOp = .{ .read = self.addr },
+                .loadRegSetNZ => |r| setNZ(r, cpu, input orelse panic("stage {s} must have an input", .{@tagName(op)})),
+                .transferRegSetNZ => |t| setNZ(t.dst, cpu, readReg(t.src, cpu)),
+                .incrementReg => |r| setNZ(r, cpu, readReg(r, cpu) +% 1),
+                .decrementReg => |r| setNZ(r, cpu, readReg(r, cpu) -% 1),
+                .setFlag => |f| setStatusFlag(f.flag, cpu, f.value),
+                .done => return null,
             }
+
+            if (advance) self.opStep += 1;
+            if (busOp) |bop| return bop;
         }
     }
 };
 
+/// the op sequence for implied instructions, i.e. ones where operands
+/// are "implied" or known from the mnemonic itself.
+/// Examples:
+///   - nop: does nothing lol
+///   - tax: transfer A to X (both known)
+///   - clc: clear carry flag
+///
+/// Each of these performs a dummy read first.
+fn impliedOps(comptime op: MicroOp) []const MicroOp {
+    return &.{ .dummyReadPc, op, .done };
+}
+
 pub fn loadOps(comptime r: Register8) []const MicroOp {
-    return &.{
-        .resolveAddr,
-        .readValue,
-        .{ .loadRegSetNZ = r },
-        .done,
-    };
+    return &.{ .resolveAddr, .readValue, .{ .loadRegSetNZ = r }, .done };
 }
 
 pub const Cpu = struct {
@@ -293,7 +324,15 @@ pub const Cpu = struct {
     }
 };
 
-fn setNZ(comptime reg: Register8, self: *Cpu, value: u8) void {
+fn readReg(reg: Register8, self: *const Cpu) u8 {
+    return switch (reg) {
+        .a => self.a,
+        .x => self.x,
+        .y => self.y,
+    };
+}
+
+fn setNZ(reg: Register8, self: *Cpu, value: u8) void {
     switch (reg) {
         .a => self.a = value,
         .x => self.x = value,
@@ -303,12 +342,10 @@ fn setNZ(comptime reg: Register8, self: *Cpu, value: u8) void {
     self.flags.n = (value & 0x80) != 0;
 }
 
-// TODO: this needs a better name lol
-fn setNZRuntime(reg: Register8, self: *Cpu, value: u8) void {
-    switch (reg) {
-        .a => setNZ(.a, self, value),
-        .x => setNZ(.x, self, value),
-        .y => setNZ(.y, self, value),
+fn setStatusFlag(flag: StatusFlag, self: *Cpu, value: bool) void {
+    switch (flag) {
+        .c => self.flags.c = value,
+        .i => self.flags.i = value,
     }
 }
 
