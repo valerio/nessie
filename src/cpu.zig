@@ -227,8 +227,7 @@ const MicroOp = union(enum) {
     done,
 };
 
-// Crappy name but trying an alternative setup where instructions are a sequence of micro-ops
-pub const Instr2 = struct {
+pub const Instruction = struct {
     ops: []const MicroOp,
     opStep: usize = 0,
     addr: u16 = 0,
@@ -279,58 +278,6 @@ pub fn loadOps(comptime r: Register8) []const MicroOp {
         .{ .loadRegSetNZ = r },
         .done,
     };
-}
-
-pub const Instruction = struct {
-    opcode: opcodes.Opcode,
-    stage: InstructionStage = .resolveAddr,
-    addrResolver: AddrResolver = .{},
-
-    // TODO: these should somehow scale up to all instrs or be private
-    // per-struct definition (comptime?)
-    pub const InstructionStage = enum {
-        resolveAddr,
-        readValue,
-        done,
-    };
-
-    pub fn init(opcode: opcodes.Opcode) Instruction {
-        return .{ .opcode = opcode };
-    }
-
-    // TODO: dispatch based on opcode table
-    pub fn step(self: *Instruction, cpu: *Cpu, input: ?u8) ?BusOp {
-        return switch (self.opcode.mnemonic) {
-            .lda => stepLoad(.a, self, cpu, input),
-            .ldx => stepLoad(.x, self, cpu, input),
-            .ldy => stepLoad(.y, self, cpu, input),
-            else => panic("instruction {} is unimplemented", .{self.opcode.mnemonic}),
-        };
-    }
-};
-
-// TODO: Move these to their own file
-// implements a state machine for all LD* instructions
-fn stepLoad(comptime reg: Register8, self: *Instruction, cpu: *Cpu, input: ?u8) ?BusOp {
-    switch (self.stage) {
-        .resolveAddr => {
-            switch (self.addrResolver.step(self.opcode.mode, cpu, input)) {
-                .pending => |op| return op,
-                .done => |addr| {
-                    self.stage = .readValue;
-                    return .{ .read = addr };
-                },
-            }
-        },
-        .readValue => {
-            const value = input orelse panic("expected load read input", .{});
-            setNZ(reg, cpu, value);
-            self.stage = .done;
-            return null;
-        },
-        .done => unreachable,
-    }
-    unreachable;
 }
 
 pub const Cpu = struct {
