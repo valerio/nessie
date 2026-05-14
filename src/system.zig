@@ -8,6 +8,7 @@ const testing = std.testing;
 
 const Cpu = cpu.Cpu;
 const Instruction = cpu.Instruction;
+const Instr2 = cpu.Instr2;
 const BusOp = cpu.BusOp;
 
 const internalRamSize = 0x800; // 2KB
@@ -151,6 +152,83 @@ test "instructions execution" {
         system.busWrite(case.valueAddr, 0x42);
 
         system.tick();
+
+        switch (case.register) {
+            .a => try testing.expectEqual(0x42, system.cpu.a),
+            .x => try testing.expectEqual(0x42, system.cpu.x),
+            .y => try testing.expectEqual(0x42, system.cpu.y),
+        }
+        try testing.expect(!system.cpu.flags.z);
+        try testing.expect(!system.cpu.flags.n);
+        const expectedPc = testPc + @as(u16, @intCast(1 + case.operand.len));
+        try testing.expectEqual(expectedPc, system.cpu.pc);
+    }
+}
+
+test "micro-op instructions execution" {
+    const testPc: u16 = 0x0200;
+    const cases = [_]struct {
+        opcode: u8,
+        register: cpu.Register8,
+        operand: []const u8,
+        valueAddr: u16,
+        pointerAddr: ?u8 = null,
+        pointerValue: u16 = 0,
+        x: u8 = 0,
+        y: u8 = 0,
+    }{
+        .{ .opcode = 0xa5, .register = .a, .operand = &.{0x80}, .valueAddr = 0x0080 }, // lda
+        .{ .opcode = 0xa6, .register = .x, .operand = &.{0x80}, .valueAddr = 0x0080 }, // ldx
+        .{ .opcode = 0xa4, .register = .y, .operand = &.{0x80}, .valueAddr = 0x0080 }, // ldy
+        .{ .opcode = 0xb5, .register = .a, .operand = &.{0x80}, .valueAddr = 0x0084, .x = 0x04 }, // lda zero page,x
+        .{ .opcode = 0xb4, .register = .y, .operand = &.{0x80}, .valueAddr = 0x0084, .x = 0x04 }, // ldy zero page,x
+        .{ .opcode = 0xb6, .register = .x, .operand = &.{0x80}, .valueAddr = 0x0084, .y = 0x04 }, // ldx zero page,y
+        .{ .opcode = 0xb5, .register = .a, .operand = &.{0xff}, .valueAddr = 0x0000, .x = 0x01 }, // zero page,x wraps
+        .{ .opcode = 0xad, .register = .a, .operand = &.{ 0x34, 0x12 }, .valueAddr = 0x1234 }, // lda absolute
+        .{ .opcode = 0xae, .register = .x, .operand = &.{ 0x34, 0x12 }, .valueAddr = 0x1234 }, // ldx absolute
+        .{ .opcode = 0xac, .register = .y, .operand = &.{ 0x34, 0x12 }, .valueAddr = 0x1234 }, // ldy absolute
+        .{ .opcode = 0xbd, .register = .a, .operand = &.{ 0x30, 0x12 }, .valueAddr = 0x1234, .x = 0x04 }, // lda absolute,x
+        .{ .opcode = 0xb9, .register = .a, .operand = &.{ 0xff, 0x12 }, .valueAddr = 0x1300, .y = 0x01 }, // lda absolute,y page-cross
+        .{ .opcode = 0xbe, .register = .x, .operand = &.{ 0x30, 0x12 }, .valueAddr = 0x1234, .y = 0x04 }, // ldx absolute,y
+        .{ .opcode = 0xbc, .register = .y, .operand = &.{ 0x30, 0x12 }, .valueAddr = 0x1234, .x = 0x04 }, // ldy absolute,x
+        .{ .opcode = 0xa1, .register = .a, .operand = &.{0x80}, .valueAddr = 0x1234, .pointerAddr = 0x84, .pointerValue = 0x1234, .x = 0x04 }, // lda (indirect,x)
+        .{ .opcode = 0xa1, .register = .a, .operand = &.{0xff}, .valueAddr = 0x1234, .pointerAddr = 0x00, .pointerValue = 0x1234, .x = 0x01 }, // lda (indirect,x) wraps pointer
+        .{ .opcode = 0xb1, .register = .a, .operand = &.{0x80}, .valueAddr = 0x1234, .pointerAddr = 0x80, .pointerValue = 0x1230, .y = 0x04 }, // lda (indirect),y
+        .{ .opcode = 0xb1, .register = .a, .operand = &.{0xff}, .valueAddr = 0x1300, .pointerAddr = 0xff, .pointerValue = 0x12ff, .y = 0x01 }, // lda (indirect),y wraps pointer and page-crosses
+    };
+
+    for (cases) |case| {
+        const romdata = [_]u8{0} ** 0x4000;
+        var nrom = mappers.Nrom.init(romdata[0..]);
+        var system = System.init(nrom.mapper());
+
+        system.cpu.pc = testPc;
+        system.cpu.x = case.x;
+        system.cpu.y = case.y;
+        system.busWrite(testPc, case.opcode);
+        for (case.operand, 0..) |byte, index| {
+            const operandAddr: u16 = testPc + @as(u16, @intCast(1 + index));
+            system.busWrite(operandAddr, byte);
+        }
+        if (case.pointerAddr) |pointerAddr| {
+            system.busWrite(pointerAddr, @truncate(case.pointerValue));
+            system.busWrite(pointerAddr +% 1, @truncate(case.pointerValue >> 8));
+        }
+        system.busWrite(case.valueAddr, 0x42);
+
+        const opcode = opcodes.table[system.busRead(system.cpu.pc)];
+        system.cpu.pc +%= 1;
+        var instr = Instr2.init(opcode);
+        var input: ?u8 = null;
+
+        while (true) {
+            const busOp = instr.step(&system.cpu, input) orelse break;
+            switch (busOp) {
+                .read => |addr| input = system.busRead(addr),
+                .write => |write| system.busWrite(write.addr, write.value),
+                .idle => input = null,
+            }
+        }
 
         switch (case.register) {
             .a => try testing.expectEqual(0x42, system.cpu.a),

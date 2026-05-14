@@ -220,6 +220,67 @@ const AddrResolver = struct {
 
 pub const Register8 = enum { a, x, y };
 
+const MicroOp = union(enum) {
+    resolveAddr,
+    readValue,
+    loadRegSetNZ: Register8,
+    done,
+};
+
+// Crappy name but trying an alternative setup where instructions are a sequence of micro-ops
+pub const Instr2 = struct {
+    ops: []const MicroOp,
+    opStep: usize = 0,
+    addr: u16 = 0,
+    opcode: opcodes.Opcode,
+    addrResolver: AddrResolver = .{},
+
+    pub fn init(opcode: opcodes.Opcode) @This() {
+        return .{ .opcode = opcode, .ops = switch (opcode.mnemonic) {
+            .lda => loadOps(.a),
+            .ldx => loadOps(.x),
+            .ldy => loadOps(.y),
+            else => &.{.done},
+        } };
+    }
+
+    pub fn step(self: *@This(), cpu: *Cpu, input: ?u8) ?BusOp {
+        while (true) {
+            const op = self.ops[self.opStep];
+            switch (op) {
+                .resolveAddr => switch (self.addrResolver.step(self.opcode.mode, cpu, input)) {
+                    .pending => |busOp| return busOp,
+                    .done => |addr| {
+                        self.addr = addr;
+                        self.opStep += 1;
+                    },
+                },
+                .readValue => {
+                    self.opStep += 1;
+                    return .{ .read = self.addr };
+                },
+                .loadRegSetNZ => |reg| {
+                    const value = input orelse panic("expected input for stage {s}", .{@tagName(op)});
+                    self.opStep += 1;
+                    setNZRuntime(reg, cpu, value);
+                },
+                .done => {
+                    return null;
+                },
+            }
+        }
+    }
+};
+
+pub fn loadOps(comptime r: Register8) []const MicroOp {
+    return &.{
+        .resolveAddr,
+        .readValue,
+        .{ .loadRegSetNZ = r },
+        .done,
+    };
+}
+
 pub const Instruction = struct {
     opcode: opcodes.Opcode,
     stage: InstructionStage = .resolveAddr,
@@ -293,6 +354,15 @@ fn setNZ(comptime reg: Register8, self: *Cpu, value: u8) void {
     }
     self.flags.z = value == 0;
     self.flags.n = (value & 0x80) != 0;
+}
+
+// TODO: this needs a better name lol
+fn setNZRuntime(reg: Register8, self: *Cpu, value: u8) void {
+    switch (reg) {
+        .a => setNZ(.a, self, value),
+        .x => setNZ(.x, self, value),
+        .y => setNZ(.y, self, value),
+    }
 }
 
 test "cpu init" {
