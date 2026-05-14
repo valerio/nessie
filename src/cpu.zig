@@ -286,12 +286,12 @@ pub const Instruction = struct {
                 },
                 .dummyReadPc => busOp = .{ .read = cpu.pc },
                 .readValue => busOp = .{ .read = self.addr },
-                .writeReg => |r| busOp = .{ .write = .{ .addr = self.addr, .value = readReg(r, cpu) } },
-                .loadRegSetNZ => |r| setNZ(r, cpu, input orelse panic("stage {s} must have an input", .{@tagName(op)})),
-                .transferRegSetNZ => |t| setNZ(t.dst, cpu, readReg(t.src, cpu)),
-                .incrementReg => |r| setNZ(r, cpu, readReg(r, cpu) +% 1),
-                .decrementReg => |r| setNZ(r, cpu, readReg(r, cpu) -% 1),
-                .setFlag => |f| setStatusFlag(f.flag, cpu, f.value),
+                .writeReg => |r| busOp = .{ .write = .{ .addr = self.addr, .value = cpu.ReadReg(r) } },
+                .loadRegSetNZ => |r| cpu.setNZ(r, input orelse panic("stage {s} must have an input", .{@tagName(op)})),
+                .transferRegSetNZ => |t| cpu.setNZ(t.dst, cpu.readReg(t.src)),
+                .incrementReg => |r| cpu.setNZ(r, cpu.readReg(r) +% 1),
+                .decrementReg => |r| cpu.setNZ(r, cpu.readReg(r) -% 1),
+                .setFlag => |f| cpu.setStatusFlag(f.flag, f.value),
                 .done => return null,
             }
 
@@ -332,32 +332,32 @@ pub const Cpu = struct {
     pub fn init() Cpu {
         return .{};
     }
+
+    pub fn readReg(self: *const Cpu, reg: Register8) u8 {
+        return switch (reg) {
+            .a => self.a,
+            .x => self.x,
+            .y => self.y,
+        };
+    }
+
+    pub fn setNZ(self: *Cpu, reg: Register8, value: u8) void {
+        switch (reg) {
+            .a => self.a = value,
+            .x => self.x = value,
+            .y => self.y = value,
+        }
+        self.flags.z = value == 0;
+        self.flags.n = (value & 0x80) != 0;
+    }
+
+    pub fn setStatusFlag(self: *Cpu, flag: StatusFlag, value: bool) void {
+        switch (flag) {
+            .c => self.flags.c = value,
+            .i => self.flags.i = value,
+        }
+    }
 };
-
-fn readReg(reg: Register8, self: *const Cpu) u8 {
-    return switch (reg) {
-        .a => self.a,
-        .x => self.x,
-        .y => self.y,
-    };
-}
-
-fn setNZ(reg: Register8, self: *Cpu, value: u8) void {
-    switch (reg) {
-        .a => self.a = value,
-        .x => self.x = value,
-        .y => self.y = value,
-    }
-    self.flags.z = value == 0;
-    self.flags.n = (value & 0x80) != 0;
-}
-
-fn setStatusFlag(flag: StatusFlag, self: *Cpu, value: bool) void {
-    switch (flag) {
-        .c => self.flags.c = value,
-        .i => self.flags.i = value,
-    }
-}
 
 test "cpu init" {
     const cpu = Cpu.init();
