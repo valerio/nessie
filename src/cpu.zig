@@ -286,7 +286,7 @@ pub const Instruction = struct {
                 },
                 .dummyReadPc => busOp = .{ .read = cpu.pc },
                 .readValue => busOp = .{ .read = self.addr },
-                .writeReg => |r| busOp = .{ .write = .{ .addr = self.addr, .value = cpu.ReadReg(r) } },
+                .writeReg => |r| busOp = .{ .write = .{ .addr = self.addr, .value = cpu.readReg(r) } },
                 .loadRegSetNZ => |r| cpu.setNZ(r, input orelse panic("stage {s} must have an input", .{@tagName(op)})),
                 .transferRegSetNZ => |t| cpu.setNZ(t.dst, cpu.readReg(t.src)),
                 .incrementReg => |r| cpu.setNZ(r, cpu.readReg(r) +% 1),
