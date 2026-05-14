@@ -4,6 +4,9 @@
 // - mnemonic: identifier of the instruction (family)
 // - mode: addressing mode, affects how operands (if any) are loaded
 // - bytes: number of bytes in the opcode
+// - forceDummyRead: true for instructions that always have the "oops" cycle
+//   this is true for e.g. store instructions, they always read from the wrong
+//   address at first, so we need to do a dummy read to get the correct address.
 //
 // This structure is for more readable definitions, these should be converted to a more compact form
 // at comptime before use.
@@ -50,4 +53,11 @@
     .{ .op = 0x95, .mnemonic = .sta, .mode = .zeroPageX, .bytes = 2 },
     .{ .op = 0x96, .mnemonic = .stx, .mode = .zeroPageY, .bytes = 2 },
     .{ .op = 0x94, .mnemonic = .sty, .mode = .zeroPageX, .bytes = 2 },
+    .{ .op = 0x8d, .mnemonic = .sta, .mode = .absolute, .bytes = 3 },
+    .{ .op = 0x8e, .mnemonic = .stx, .mode = .absolute, .bytes = 3 },
+    .{ .op = 0x8c, .mnemonic = .sty, .mode = .absolute, .bytes = 3 },
+    .{ .op = 0x81, .mnemonic = .sta, .mode = .indirectX, .bytes = 2 },
+    .{ .op = 0x91, .mnemonic = .sta, .mode = .indirectY, .bytes = 2, .forceDummyRead = true },
+    .{ .op = 0x99, .mnemonic = .sta, .mode = .absoluteY, .bytes = 3, .forceDummyRead = true },
+    .{ .op = 0x9d, .mnemonic = .sta, .mode = .absoluteX, .bytes = 3, .forceDummyRead = true },
 }

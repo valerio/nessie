@@ -95,7 +95,8 @@ const AddrResolver = struct {
         done: u16,
     };
 
-    fn step(self: *AddrResolver, mode: opcodes.AddrMode, cpu: *Cpu, input: ?u8) AddrResult {
+    fn step(self: *AddrResolver, opcode: opcodes.Opcode, cpu: *Cpu, input: ?u8) AddrResult {
+        const mode = opcode.mode;
         switch (self.state) {
             .start => {
                 const addr = cpu.pc;
@@ -168,7 +169,7 @@ const AddrResolver = struct {
                 };
                 const addr = baseAddr +% index;
 
-                if (index != 0 and pageCrossed(baseAddr, addr)) {
+                if (opcode.forceDummyRead or (index != 0 and pageCrossed(baseAddr, addr))) {
                     self.state = .{ .dummyRead = .{ .addr = addr } };
                     return .{ .pending = .{ .read = dummyReadAddr(baseAddr, addr) } };
                 }
@@ -193,7 +194,7 @@ const AddrResolver = struct {
                     },
                     .indirectY => {
                         const addr = baseAddr +% cpu.y;
-                        if (cpu.y != 0 and pageCrossed(baseAddr, addr)) {
+                        if (opcode.forceDummyRead or (cpu.y != 0 and pageCrossed(baseAddr, addr))) {
                             self.state = .{ .dummyRead = .{ .addr = addr } };
                             return .{ .pending = .{ .read = dummyReadAddr(baseAddr, addr) } };
                         }
@@ -276,7 +277,7 @@ pub const Instruction = struct {
             var advance = true;
 
             switch (op) {
-                .resolveAddr => switch (self.addrResolver.step(self.opcode.mode, cpu, input)) {
+                .resolveAddr => switch (self.addrResolver.step(self.opcode, cpu, input)) {
                     .pending => |pending| {
                         busOp = pending;
                         advance = false;

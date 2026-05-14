@@ -164,6 +164,13 @@ test "instructions execution" {
         .{ .opcode = 0x96, .operand = &.{0x80}, .setup = .{ .x = 0x46, .y = 0x04 }, .want = .{ .x = 0x46, .y = 0x04, .mem = .{ .addr = 0x0084, .value = 0x46 } } }, // stx zero page,y
         .{ .opcode = 0x94, .operand = &.{0x80}, .setup = .{ .x = 0x04, .y = 0x47 }, .want = .{ .x = 0x04, .y = 0x47, .mem = .{ .addr = 0x0084, .value = 0x47 } } }, // sty zero page,x
         .{ .opcode = 0x95, .operand = &.{0xff}, .setup = .{ .a = 0x48, .x = 0x01 }, .want = .{ .a = 0x48, .x = 0x01, .mem = .{ .addr = 0x0000, .value = 0x48 } } }, // sta zero page,x wraps
+        .{ .opcode = 0x8d, .operand = &.{ 0x00, 0x03 }, .setup = .{ .a = 0x49 }, .want = .{ .a = 0x49, .mem = .{ .addr = 0x0300, .value = 0x49 } } }, // sta absolute
+        .{ .opcode = 0x8e, .operand = &.{ 0x00, 0x03 }, .setup = .{ .x = 0x4a }, .want = .{ .x = 0x4a, .mem = .{ .addr = 0x0300, .value = 0x4a } } }, // stx absolute
+        .{ .opcode = 0x8c, .operand = &.{ 0x00, 0x03 }, .setup = .{ .y = 0x4b }, .want = .{ .y = 0x4b, .mem = .{ .addr = 0x0300, .value = 0x4b } } }, // sty absolute
+        .{ .opcode = 0x81, .operand = &.{0x80}, .setup = .{ .a = 0x4c, .x = 0x04, .ptr = .{ .addr = 0x84, .value = 0x0300 } }, .want = .{ .a = 0x4c, .x = 0x04, .mem = .{ .addr = 0x0300, .value = 0x4c } } }, // sta (indirect,x)
+        .{ .opcode = 0x91, .operand = &.{0x80}, .setup = .{ .a = 0x4d, .y = 0x04, .ptr = .{ .addr = 0x80, .value = 0x0300 } }, .want = .{ .a = 0x4d, .y = 0x04, .mem = .{ .addr = 0x0304, .value = 0x4d } } }, // sta (indirect),y
+        .{ .opcode = 0x99, .operand = &.{ 0x00, 0x03 }, .setup = .{ .a = 0x4e, .y = 0x04 }, .want = .{ .a = 0x4e, .y = 0x04, .mem = .{ .addr = 0x0304, .value = 0x4e } } }, // sta absolute,y
+        .{ .opcode = 0x9d, .operand = &.{ 0x00, 0x03 }, .setup = .{ .a = 0x4f, .x = 0x04 }, .want = .{ .a = 0x4f, .x = 0x04, .mem = .{ .addr = 0x0304, .value = 0x4f } } }, // sta absolute,x
     };
 
     for (testCases, 0..) |case, caseIndex| {

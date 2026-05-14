@@ -33,6 +33,7 @@ pub const OpcodeSpec = struct {
     mnemonic: Mnemonic,
     mode: AddrMode,
     bytes: u2,
+    forceDummyRead: bool = false,
 };
 
 /// A packed representation of a NES opcode metadata.
@@ -41,7 +42,8 @@ pub const Opcode = packed struct(u16) {
     mnemonic: Mnemonic = .kil,
     mode: AddrMode = .implied,
     bytes: u2 = 1,
-    reserved: u4 = 0,
+    forceDummyRead: bool = false,
+    reserved: u3 = 0,
 };
 
 pub fn buildTable(comptime specs: []const OpcodeSpec) [256]Opcode {
@@ -52,6 +54,7 @@ pub fn buildTable(comptime specs: []const OpcodeSpec) [256]Opcode {
             .mnemonic = spec.mnemonic,
             .mode = spec.mode,
             .bytes = spec.bytes,
+            .forceDummyRead = spec.forceDummyRead,
         };
     }
 
@@ -67,4 +70,5 @@ test "builds opcode table" {
     try testing.expectEqual(spec.mnemonic, table[spec.op].mnemonic);
     try testing.expectEqual(spec.mode, table[spec.op].mode);
     try testing.expectEqual(spec.bytes, table[spec.op].bytes);
+    try testing.expectEqual(spec.forceDummyRead, table[spec.op].forceDummyRead);
 }
