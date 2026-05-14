@@ -45,4 +45,9 @@
     .{ .op = 0x78, .mnemonic = .sei, .mode = .implied, .bytes = 1 },
 
     .{ .op = 0x85, .mnemonic = .sta, .mode = .zeroPage, .bytes = 2 },
+    .{ .op = 0x86, .mnemonic = .stx, .mode = .zeroPage, .bytes = 2 },
+    .{ .op = 0x84, .mnemonic = .sty, .mode = .zeroPage, .bytes = 2 },
+    .{ .op = 0x95, .mnemonic = .sta, .mode = .zeroPageX, .bytes = 2 },
+    .{ .op = 0x96, .mnemonic = .stx, .mode = .zeroPageY, .bytes = 2 },
+    .{ .op = 0x94, .mnemonic = .sty, .mode = .zeroPageX, .bytes = 2 },
 }

@@ -228,6 +228,7 @@ const MicroOp = union(enum) {
     dummyReadPc,
     resolveAddr,
     readValue,
+    writeReg: Register8,
     loadRegSetNZ: Register8,
     transferRegSetNZ: struct { src: Register8, dst: Register8 },
     incrementReg: Register8,
@@ -249,6 +250,9 @@ pub const Instruction = struct {
             .lda => loadOps(.a),
             .ldx => loadOps(.x),
             .ldy => loadOps(.y),
+            .sta => storeOps(.a),
+            .stx => storeOps(.x),
+            .sty => storeOps(.y),
             .tax => impliedOps(.{ .transferRegSetNZ = .{ .src = .a, .dst = .x } }),
             .txa => impliedOps(.{ .transferRegSetNZ = .{ .src = .x, .dst = .a } }),
             .tay => impliedOps(.{ .transferRegSetNZ = .{ .src = .a, .dst = .y } }),
@@ -281,6 +285,7 @@ pub const Instruction = struct {
                 },
                 .dummyReadPc => busOp = .{ .read = cpu.pc },
                 .readValue => busOp = .{ .read = self.addr },
+                .writeReg => |r| busOp = .{ .write = .{ .addr = self.addr, .value = readReg(r, cpu) } },
                 .loadRegSetNZ => |r| setNZ(r, cpu, input orelse panic("stage {s} must have an input", .{@tagName(op)})),
                 .transferRegSetNZ => |t| setNZ(t.dst, cpu, readReg(t.src, cpu)),
                 .incrementReg => |r| setNZ(r, cpu, readReg(r, cpu) +% 1),
@@ -309,6 +314,10 @@ fn impliedOps(comptime op: MicroOp) []const MicroOp {
 
 pub fn loadOps(comptime r: Register8) []const MicroOp {
     return &.{ .resolveAddr, .readValue, .{ .loadRegSetNZ = r }, .done };
+}
+
+pub fn storeOps(comptime r: Register8) []const MicroOp {
+    return &.{ .resolveAddr, .{ .writeReg = r }, .done };
 }
 
 pub const Cpu = struct {

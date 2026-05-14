@@ -97,86 +97,107 @@ test "system executes LDA immediate" {
 }
 
 test "instructions execution" {
-    const testPc: u16 = 0x0200;
-    const testCases = [_]struct {
-        opcode: u8,
-        operand: []const u8 = &.{},
-        valueAddr: ?u16 = null,
-        pointerAddr: ?u8 = null,
-        pointerValue: u16 = 0,
+    const Setup = struct {
         a: u8 = 0,
         x: u8 = 0,
         y: u8 = 0,
         flags: u8 = 0x24,
-        wantA: ?u8 = null,
-        wantX: ?u8 = null,
-        wantY: ?u8 = null,
-        wantFlags: u8 = 0x24,
-    }{
-        .{ .opcode = 0xea }, // nop
-        .{ .opcode = 0xaa, .a = 0x80, .wantX = 0x80, .wantFlags = 0b10100100 }, // tax
-        .{ .opcode = 0x8a, .a = 0x42, .wantA = 0x00, .wantFlags = 0b00100110 }, // txa
-        .{ .opcode = 0xa8, .a = 0x42, .wantY = 0x42 }, // tay
-        .{ .opcode = 0x98, .y = 0x80, .wantA = 0x80, .wantFlags = 0b10100100 }, // tya
-        .{ .opcode = 0xe8, .x = 0xff, .wantX = 0x00, .wantFlags = 0b00100110 }, // inx wraps
-        .{ .opcode = 0xca, .x = 0x00, .wantX = 0xff, .wantFlags = 0b10100100 }, // dex wraps
-        .{ .opcode = 0xc8, .y = 0x7f, .wantY = 0x80, .wantFlags = 0b10100100 }, // iny
-        .{ .opcode = 0x88, .y = 0x01, .wantY = 0x00, .wantFlags = 0b00100110 }, // dey
-        .{ .opcode = 0x18, .flags = 0x25 }, // clc
-        .{ .opcode = 0x38, .wantFlags = 0b100101 }, // sec
-        .{ .opcode = 0x58, .wantFlags = 0b100000 }, // cli
-        .{ .opcode = 0x78 }, // sei
-
-        .{ .opcode = 0xa9, .operand = &.{0x42}, .wantA = 0x42 }, // lda immediate
-        .{ .opcode = 0xa2, .operand = &.{0x42}, .wantX = 0x42 }, // ldx immediate
-        .{ .opcode = 0xa0, .operand = &.{0x42}, .wantY = 0x42 }, // ldy immediate
-        .{ .opcode = 0xa5, .operand = &.{0x80}, .valueAddr = 0x0080, .wantA = 0x42 }, // lda
-        .{ .opcode = 0xa6, .operand = &.{0x80}, .valueAddr = 0x0080, .wantX = 0x42 }, // ldx
-        .{ .opcode = 0xa4, .operand = &.{0x80}, .valueAddr = 0x0080, .wantY = 0x42 }, // ldy
-        .{ .opcode = 0xb5, .operand = &.{0x80}, .valueAddr = 0x0084, .x = 0x04, .wantA = 0x42 }, // lda zero page,x
-        .{ .opcode = 0xb4, .operand = &.{0x80}, .valueAddr = 0x0084, .x = 0x04, .wantY = 0x42 }, // ldy zero page,x
-        .{ .opcode = 0xb6, .operand = &.{0x80}, .valueAddr = 0x0084, .y = 0x04, .wantX = 0x42 }, // ldx zero page,y
-        .{ .opcode = 0xb5, .operand = &.{0xff}, .valueAddr = 0x0000, .x = 0x01, .wantA = 0x42 }, // zero page,x wraps
-        .{ .opcode = 0xad, .operand = &.{ 0x34, 0x12 }, .valueAddr = 0x1234, .wantA = 0x42 }, // lda absolute
-        .{ .opcode = 0xae, .operand = &.{ 0x34, 0x12 }, .valueAddr = 0x1234, .wantX = 0x42 }, // ldx absolute
-        .{ .opcode = 0xac, .operand = &.{ 0x34, 0x12 }, .valueAddr = 0x1234, .wantY = 0x42 }, // ldy absolute
-        .{ .opcode = 0xbd, .operand = &.{ 0x30, 0x12 }, .valueAddr = 0x1234, .x = 0x04, .wantA = 0x42 }, // lda absolute,x
-        .{ .opcode = 0xb9, .operand = &.{ 0xff, 0x12 }, .valueAddr = 0x1300, .y = 0x01, .wantA = 0x42 }, // lda absolute,y page-cross
-        .{ .opcode = 0xbe, .operand = &.{ 0x30, 0x12 }, .valueAddr = 0x1234, .y = 0x04, .wantX = 0x42 }, // ldx absolute,y
-        .{ .opcode = 0xbc, .operand = &.{ 0x30, 0x12 }, .valueAddr = 0x1234, .x = 0x04, .wantY = 0x42 }, // ldy absolute,x
-        .{ .opcode = 0xa1, .operand = &.{0x80}, .valueAddr = 0x1234, .pointerAddr = 0x84, .pointerValue = 0x1234, .x = 0x04, .wantA = 0x42 }, // lda (indirect,x)
-        .{ .opcode = 0xa1, .operand = &.{0xff}, .valueAddr = 0x1234, .pointerAddr = 0x00, .pointerValue = 0x1234, .x = 0x01, .wantA = 0x42 }, // lda (indirect,x) wraps pointer
-        .{ .opcode = 0xb1, .operand = &.{0x80}, .valueAddr = 0x1234, .pointerAddr = 0x80, .pointerValue = 0x1230, .y = 0x04, .wantA = 0x42 }, // lda (indirect),y
-        .{ .opcode = 0xb1, .operand = &.{0xff}, .valueAddr = 0x1300, .pointerAddr = 0xff, .pointerValue = 0x12ff, .y = 0x01, .wantA = 0x42 }, // lda (indirect),y wraps pointer and page-crosses
+        read: ?struct { addr: u16, value: u8 = 0x42 } = null,
+        ptr: ?struct { addr: u8, value: u16 } = null,
+    };
+    const Want = struct {
+        a: u8 = 0,
+        x: u8 = 0,
+        y: u8 = 0,
+        flags: u8 = 0x24,
+        mem: ?struct { addr: u16, value: u8 } = null,
     };
 
-    for (testCases) |case| {
+    const testPc: u16 = 0x0200;
+
+    const testCases = [_]struct {
+        opcode: u8,
+        operand: []const u8 = &.{},
+        setup: Setup = .{},
+        want: Want = .{},
+    }{
+        .{ .opcode = 0xea, .setup = .{ .a = 0x11, .x = 0x22, .y = 0x33, .flags = 0x25 }, .want = .{ .a = 0x11, .x = 0x22, .y = 0x33, .flags = 0x25 } }, // nop
+        .{ .opcode = 0xaa, .setup = .{ .a = 0x80, .x = 0x11 }, .want = .{ .a = 0x80, .x = 0x80, .flags = 0xa4 } }, // tax
+        .{ .opcode = 0x8a, .setup = .{ .a = 0x42, .x = 0x80 }, .want = .{ .a = 0x80, .x = 0x80, .flags = 0xa4 } }, // txa
+        .{ .opcode = 0xa8, .setup = .{ .a = 0x42, .y = 0x11 }, .want = .{ .a = 0x42, .y = 0x42 } }, // tay
+        .{ .opcode = 0x98, .setup = .{ .a = 0x42, .y = 0x80 }, .want = .{ .a = 0x80, .y = 0x80, .flags = 0xa4 } }, // tya
+        .{ .opcode = 0xe8, .setup = .{ .x = 0xff }, .want = .{ .x = 0x00, .flags = 0x26 } }, // inx wraps
+        .{ .opcode = 0xca, .setup = .{ .x = 0x00 }, .want = .{ .x = 0xff, .flags = 0xa4 } }, // dex wraps
+        .{ .opcode = 0xc8, .setup = .{ .y = 0x7f }, .want = .{ .y = 0x80, .flags = 0xa4 } }, // iny
+        .{ .opcode = 0x88, .setup = .{ .y = 0x01 }, .want = .{ .y = 0x00, .flags = 0x26 } }, // dey
+        .{ .opcode = 0x18, .setup = .{ .flags = 0x25 } }, // clc
+        .{ .opcode = 0x38, .want = .{ .flags = 0x25 } }, // sec
+        .{ .opcode = 0x58, .want = .{ .flags = 0x20 } }, // cli
+        .{ .opcode = 0x78, .setup = .{ .flags = 0x20 }, .want = .{ .flags = 0x24 } }, // sei
+
+        .{ .opcode = 0xa9, .operand = &.{0x42}, .want = .{ .a = 0x42 } }, // lda immediate
+        .{ .opcode = 0xa2, .operand = &.{0x42}, .want = .{ .x = 0x42 } }, // ldx immediate
+        .{ .opcode = 0xa0, .operand = &.{0x42}, .want = .{ .y = 0x42 } }, // ldy immediate
+        .{ .opcode = 0xa5, .operand = &.{0x80}, .setup = .{ .read = .{ .addr = 0x0080 } }, .want = .{ .a = 0x42 } }, // lda
+        .{ .opcode = 0xa6, .operand = &.{0x80}, .setup = .{ .read = .{ .addr = 0x0080 } }, .want = .{ .x = 0x42 } }, // ldx
+        .{ .opcode = 0xa4, .operand = &.{0x80}, .setup = .{ .read = .{ .addr = 0x0080 } }, .want = .{ .y = 0x42 } }, // ldy
+        .{ .opcode = 0xb5, .operand = &.{0x80}, .setup = .{ .x = 0x04, .read = .{ .addr = 0x0084 } }, .want = .{ .a = 0x42, .x = 0x04 } }, // lda zero page,x
+        .{ .opcode = 0xb4, .operand = &.{0x80}, .setup = .{ .x = 0x04, .read = .{ .addr = 0x0084 } }, .want = .{ .x = 0x04, .y = 0x42 } }, // ldy zero page,x
+        .{ .opcode = 0xb6, .operand = &.{0x80}, .setup = .{ .y = 0x04, .read = .{ .addr = 0x0084 } }, .want = .{ .x = 0x42, .y = 0x04 } }, // ldx zero page,y
+        .{ .opcode = 0xb5, .operand = &.{0xff}, .setup = .{ .x = 0x01, .read = .{ .addr = 0x0000 } }, .want = .{ .a = 0x42, .x = 0x01 } }, // zero page,x wraps
+        .{ .opcode = 0xad, .operand = &.{ 0x34, 0x12 }, .setup = .{ .read = .{ .addr = 0x1234 } }, .want = .{ .a = 0x42 } }, // lda absolute
+        .{ .opcode = 0xae, .operand = &.{ 0x34, 0x12 }, .setup = .{ .read = .{ .addr = 0x1234 } }, .want = .{ .x = 0x42 } }, // ldx absolute
+        .{ .opcode = 0xac, .operand = &.{ 0x34, 0x12 }, .setup = .{ .read = .{ .addr = 0x1234 } }, .want = .{ .y = 0x42 } }, // ldy absolute
+        .{ .opcode = 0xbd, .operand = &.{ 0x30, 0x12 }, .setup = .{ .x = 0x04, .read = .{ .addr = 0x1234 } }, .want = .{ .a = 0x42, .x = 0x04 } }, // lda absolute,x
+        .{ .opcode = 0xb9, .operand = &.{ 0xff, 0x12 }, .setup = .{ .y = 0x01, .read = .{ .addr = 0x1300 } }, .want = .{ .a = 0x42, .y = 0x01 } }, // lda absolute,y page-cross
+        .{ .opcode = 0xbe, .operand = &.{ 0x30, 0x12 }, .setup = .{ .y = 0x04, .read = .{ .addr = 0x1234 } }, .want = .{ .x = 0x42, .y = 0x04 } }, // ldx absolute,y
+        .{ .opcode = 0xbc, .operand = &.{ 0x30, 0x12 }, .setup = .{ .x = 0x04, .read = .{ .addr = 0x1234 } }, .want = .{ .x = 0x04, .y = 0x42 } }, // ldy absolute,x
+        .{ .opcode = 0xa1, .operand = &.{0x80}, .setup = .{ .x = 0x04, .read = .{ .addr = 0x1234 }, .ptr = .{ .addr = 0x84, .value = 0x1234 } }, .want = .{ .a = 0x42, .x = 0x04 } }, // lda (indirect,x)
+        .{ .opcode = 0xa1, .operand = &.{0xff}, .setup = .{ .x = 0x01, .read = .{ .addr = 0x1234 }, .ptr = .{ .addr = 0x00, .value = 0x1234 } }, .want = .{ .a = 0x42, .x = 0x01 } }, // lda (indirect,x) wraps pointer
+        .{ .opcode = 0xb1, .operand = &.{0x80}, .setup = .{ .y = 0x04, .read = .{ .addr = 0x1234 }, .ptr = .{ .addr = 0x80, .value = 0x1230 } }, .want = .{ .a = 0x42, .y = 0x04 } }, // lda (indirect),y
+        .{ .opcode = 0xb1, .operand = &.{0xff}, .setup = .{ .y = 0x01, .read = .{ .addr = 0x1300 }, .ptr = .{ .addr = 0xff, .value = 0x12ff } }, .want = .{ .a = 0x42, .y = 0x01 } }, // lda (indirect),y wraps pointer and page-crosses
+
+        .{ .opcode = 0x85, .operand = &.{0x80}, .setup = .{ .a = 0x42 }, .want = .{ .a = 0x42, .mem = .{ .addr = 0x0080, .value = 0x42 } } }, // sta zero page
+        .{ .opcode = 0x86, .operand = &.{0x80}, .setup = .{ .x = 0x43 }, .want = .{ .x = 0x43, .mem = .{ .addr = 0x0080, .value = 0x43 } } }, // stx zero page
+        .{ .opcode = 0x84, .operand = &.{0x80}, .setup = .{ .y = 0x44 }, .want = .{ .y = 0x44, .mem = .{ .addr = 0x0080, .value = 0x44 } } }, // sty zero page
+        .{ .opcode = 0x95, .operand = &.{0x80}, .setup = .{ .a = 0x45, .x = 0x04 }, .want = .{ .a = 0x45, .x = 0x04, .mem = .{ .addr = 0x0084, .value = 0x45 } } }, // sta zero page,x
+        .{ .opcode = 0x96, .operand = &.{0x80}, .setup = .{ .x = 0x46, .y = 0x04 }, .want = .{ .x = 0x46, .y = 0x04, .mem = .{ .addr = 0x0084, .value = 0x46 } } }, // stx zero page,y
+        .{ .opcode = 0x94, .operand = &.{0x80}, .setup = .{ .x = 0x04, .y = 0x47 }, .want = .{ .x = 0x04, .y = 0x47, .mem = .{ .addr = 0x0084, .value = 0x47 } } }, // sty zero page,x
+        .{ .opcode = 0x95, .operand = &.{0xff}, .setup = .{ .a = 0x48, .x = 0x01 }, .want = .{ .a = 0x48, .x = 0x01, .mem = .{ .addr = 0x0000, .value = 0x48 } } }, // sta zero page,x wraps
+    };
+
+    for (testCases, 0..) |case, caseIndex| {
+        errdefer std.debug.print("failed instruction case {d}: opcode 0x{x:0>2}\n", .{ caseIndex, case.opcode });
+
         const romdata = [_]u8{0} ** 0x4000;
         var nrom = mappers.Nrom.init(romdata[0..]);
         var system = System.init(nrom.mapper());
 
         system.cpu.pc = testPc;
-        system.cpu.a = case.a;
-        system.cpu.x = case.x;
-        system.cpu.y = case.y;
-        system.cpu.flags = cpu.Flags.fromByte(case.flags);
+        system.cpu.a = case.setup.a;
+        system.cpu.x = case.setup.x;
+        system.cpu.y = case.setup.y;
+        system.cpu.flags = cpu.Flags.fromByte(case.setup.flags);
         system.busWrite(testPc, case.opcode);
+
         for (case.operand, 0..) |byte, index| {
-            const operandAddr: u16 = testPc + @as(u16, @intCast(1 + index));
-            system.busWrite(operandAddr, byte);
+            system.busWrite(testPc + @as(u16, @intCast(1 + index)), byte);
         }
-        if (case.pointerAddr) |pointerAddr| {
-            system.busWrite(pointerAddr, @truncate(case.pointerValue));
-            system.busWrite(pointerAddr +% 1, @truncate(case.pointerValue >> 8));
+        if (case.setup.ptr) |ptr| {
+            system.busWrite(ptr.addr, @truncate(ptr.value));
+            system.busWrite(ptr.addr +% 1, @truncate(ptr.value >> 8));
         }
-        if (case.valueAddr) |valueAddr| system.busWrite(valueAddr, 0x42);
+        if (case.setup.read) |read| system.busWrite(read.addr, read.value);
 
         system.tick();
 
-        try testing.expectEqual(case.wantA orelse case.a, system.cpu.a);
-        try testing.expectEqual(case.wantX orelse case.x, system.cpu.x);
-        try testing.expectEqual(case.wantY orelse case.y, system.cpu.y);
-        try testing.expectEqual(case.wantFlags, system.cpu.flags.toByte());
+        try testing.expectEqual(case.want.a, system.cpu.a);
+        try testing.expectEqual(case.want.x, system.cpu.x);
+        try testing.expectEqual(case.want.y, system.cpu.y);
+        try testing.expectEqual(case.want.flags, system.cpu.flags.toByte());
+        if (case.want.mem) |mem| {
+            try testing.expectEqual(mem.value, system.busRead(mem.addr));
+        }
         const wantPc = testPc + @as(u16, @intCast(1 + case.operand.len));
         try testing.expectEqual(wantPc, system.cpu.pc);
     }

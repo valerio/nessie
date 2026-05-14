@@ -10,7 +10,7 @@ pub const Mnemonic = enum(u6) {
     iny, dey,
     clc, sec,
     cli, sei,
-    sta,
+    sta, stx, sty,
     kil,
 };
 
