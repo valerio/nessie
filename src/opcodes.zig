@@ -10,6 +10,10 @@ pub const Mnemonic = enum(u6) {
     tax, txa, tay, tya,
     inx, dex,
     iny, dey,
+    bcc, bcs,
+    beq, bne,
+    bpl, bmi,
+    bvc, bvs,
     clc, sec,
     cli, sei,
     sta, stx, sty,
@@ -27,6 +31,7 @@ pub const AddrMode = enum(u4) {
     absoluteY,
     indirectX,
     indirectY,
+    relative,
 };
 
 /// A parsed NES opcode specification

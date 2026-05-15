@@ -62,6 +62,14 @@ pub const BusOp = union(enum) {
     idle,
 };
 
+fn pageCrossed(base: u16, addr: u16) bool {
+    return (base & 0xff00) != (addr & 0xff00);
+}
+
+fn dummyReadAddr(base: u16, addr: u16) u16 {
+    return (base & 0xff00) | (addr & 0x00ff);
+}
+
 /// Implements instruction addressing resolution as a state machine.
 /// In a 6502, the same instruction can get its operands in a variety of modes (see opcodes.AddrMode)
 ///
@@ -211,19 +219,74 @@ const AddrResolver = struct {
             .resolved => |state| return .{ .done = state.addr },
         }
     }
-
-    fn pageCrossed(base: u16, addr: u16) bool {
-        return (base & 0xff00) != (addr & 0xff00);
-    }
-
-    fn dummyReadAddr(base: u16, addr: u16) u16 {
-        return (base & 0xff00) | (addr & 0x00ff);
-    }
 };
 
 pub const Register8 = enum { a, x, y };
 
-const StatusFlag = enum { c, i };
+const StatusFlag = enum { c, i, z, n, v };
+
+const BranchCondition = struct {
+    flag: StatusFlag,
+    set: bool,
+};
+
+const BranchResolver = struct {
+    state: State = .start,
+
+    const State = union(enum) {
+        start,
+        check,
+        taken: u16,
+        pageCross: u16,
+        done,
+    };
+
+    pub fn step(self: *BranchResolver, condition: BranchCondition, cpu: *Cpu, input: ?u8) ?BusOp {
+        switch (self.state) {
+            .start => {
+                const addr = cpu.pc;
+                cpu.pc +%= 1;
+                self.state = .check;
+                return .{ .read = addr };
+            },
+            .check => {
+                const offset = input.?;
+
+                if (cpu.getStatusFlag(condition.flag) != condition.set) {
+                    self.state = .done;
+                    return null;
+                }
+
+                const base = cpu.pc;
+                const target = branchTarget(base, offset);
+                self.state = .{ .taken = target };
+                return .{ .read = base };
+            },
+            .taken => |target| {
+                const base = cpu.pc;
+                if (pageCrossed(base, target)) {
+                    self.state = .{ .pageCross = target };
+                    return .{ .read = dummyReadAddr(base, target) };
+                }
+
+                cpu.pc = target;
+                self.state = .done;
+                return null;
+            },
+            .pageCross => |target| {
+                cpu.pc = target;
+                self.state = .done;
+                return null;
+            },
+            .done => return null,
+        }
+    }
+
+    fn branchTarget(base: u16, offset: u8) u16 {
+        if (offset < 0x80) return base +% offset;
+        return base -% (0x100 - @as(u16, offset));
+    }
+};
 
 const AluOp = enum {
     @"and",
@@ -244,6 +307,7 @@ const MicroOp = union(enum) {
     compareReg: Register8,
 
     aluA: AluOp,
+    branch: BranchCondition,
 
     setFlag: struct { flag: StatusFlag, value: bool },
     done,
@@ -255,6 +319,7 @@ pub const Instruction = struct {
     addr: u16 = 0,
     opcode: opcodes.Opcode,
     addrResolver: AddrResolver = .{},
+    branchResolver: BranchResolver = .{},
 
     pub fn init(opcode: opcodes.Opcode) @This() {
         return .{ .opcode = opcode, .ops = switch (opcode.mnemonic) {
@@ -271,6 +336,14 @@ pub const Instruction = struct {
             .cmp => compareOps(.a),
             .cpx => compareOps(.x),
             .cpy => compareOps(.y),
+            .bcc => branchOps(.c, false),
+            .bcs => branchOps(.c, true),
+            .beq => branchOps(.z, true),
+            .bne => branchOps(.z, false),
+            .bpl => branchOps(.n, false),
+            .bmi => branchOps(.n, true),
+            .bvc => branchOps(.v, false),
+            .bvs => branchOps(.v, true),
             .tax => impliedOps(.{ .transferReg = .{ .src = .a, .dst = .x } }),
             .txa => impliedOps(.{ .transferReg = .{ .src = .x, .dst = .a } }),
             .tay => impliedOps(.{ .transferReg = .{ .src = .a, .dst = .y } }),
@@ -311,6 +384,10 @@ pub const Instruction = struct {
                 .decrementReg => |r| cpu.setRegNZ(r, cpu.readReg(r) -% 1),
                 .compareReg => |r| cpu.compare(cpu.readReg(r), input.?),
                 .aluA => |aluOp| cpu.setRegNZ(.a, cpu.aluA(aluOp, input.?)),
+                .branch => |condition| {
+                    busOp = self.branchResolver.step(condition, cpu, input);
+                    advance = busOp == null;
+                },
                 .setFlag => |f| cpu.setStatusFlag(f.flag, f.value),
                 .done => return null,
             }
@@ -347,6 +424,10 @@ pub fn aluAOps(comptime op: AluOp) []const MicroOp {
 
 pub fn compareOps(comptime r: Register8) []const MicroOp {
     return &.{ .resolveAddr, .readValue, .{ .compareReg = r }, .done };
+}
+
+pub fn branchOps(comptime flag: StatusFlag, comptime set: bool) []const MicroOp {
+    return &.{ .{ .branch = .{ .flag = flag, .set = set } }, .done };
 }
 
 pub const Cpu = struct {
@@ -392,7 +473,20 @@ pub const Cpu = struct {
         switch (flag) {
             .c => self.flags.c = value,
             .i => self.flags.i = value,
+            .z => self.flags.z = value,
+            .n => self.flags.n = value,
+            .v => self.flags.v = value,
         }
+    }
+
+    pub fn getStatusFlag(self: *Cpu, flag: StatusFlag) bool {
+        return switch (flag) {
+            .c => self.flags.c,
+            .i => self.flags.i,
+            .z => self.flags.z,
+            .n => self.flags.n,
+            .v => self.flags.v,
+        };
     }
 
     pub fn aluA(self: *Cpu, op: AluOp, value: u8) u8 {

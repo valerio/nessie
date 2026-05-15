@@ -76,6 +76,15 @@
     .{ .op = 0xc4, .mnemonic = .cpy, .mode = .zeroPage, .bytes = 2 },
     .{ .op = 0xcc, .mnemonic = .cpy, .mode = .absolute, .bytes = 3 },
 
+    .{ .op = 0x90, .mnemonic = .bcc, .mode = .relative, .bytes = 2 },
+    .{ .op = 0xb0, .mnemonic = .bcs, .mode = .relative, .bytes = 2 },
+    .{ .op = 0xf0, .mnemonic = .beq, .mode = .relative, .bytes = 2 },
+    .{ .op = 0xd0, .mnemonic = .bne, .mode = .relative, .bytes = 2 },
+    .{ .op = 0x10, .mnemonic = .bpl, .mode = .relative, .bytes = 2 },
+    .{ .op = 0x30, .mnemonic = .bmi, .mode = .relative, .bytes = 2 },
+    .{ .op = 0x50, .mnemonic = .bvc, .mode = .relative, .bytes = 2 },
+    .{ .op = 0x70, .mnemonic = .bvs, .mode = .relative, .bytes = 2 },
+
     .{ .op = 0xaa, .mnemonic = .tax, .mode = .implied, .bytes = 1 },
     .{ .op = 0x8a, .mnemonic = .txa, .mode = .implied, .bytes = 1 },
     .{ .op = 0xa8, .mnemonic = .tay, .mode = .implied, .bytes = 1 },

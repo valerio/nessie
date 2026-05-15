@@ -111,6 +111,7 @@ test "instructions execution" {
         y: u8 = 0,
         flags: u8 = 0x24,
         mem: ?struct { addr: u16, value: u8 } = null,
+        pc: ?u16 = null,
     };
 
     const testPc: u16 = 0x0200;
@@ -200,6 +201,17 @@ test "instructions execution" {
         .{ .opcode = 0xc4, .operand = &.{0x80}, .setup = .{ .y = 0x20, .read = .{ .addr = 0x0080, .value = 0x40 } }, .want = .{ .y = 0x20, .flags = 0xa4 } }, // cpy zero page less
         .{ .opcode = 0xcc, .operand = &.{ 0x34, 0x12 }, .setup = .{ .y = 0x50, .read = .{ .addr = 0x1234, .value = 0x40 } }, .want = .{ .y = 0x50, .flags = 0x25 } }, // cpy absolute greater
 
+        .{ .opcode = 0x90, .operand = &.{0x04}, .setup = .{ .flags = 0x24 }, .want = .{ .flags = 0x24, .pc = testPc + 6 } }, // bcc taken forward
+        .{ .opcode = 0x90, .operand = &.{0x04}, .setup = .{ .flags = 0x25 }, .want = .{ .flags = 0x25 } }, // bcc not taken
+        .{ .opcode = 0xb0, .operand = &.{0x04}, .setup = .{ .flags = 0x25 }, .want = .{ .flags = 0x25, .pc = testPc + 6 } }, // bcs taken
+        .{ .opcode = 0xf0, .operand = &.{0x04}, .setup = .{ .flags = 0x26 }, .want = .{ .flags = 0x26, .pc = testPc + 6 } }, // beq taken
+        .{ .opcode = 0xd0, .operand = &.{0x04}, .setup = .{ .flags = 0x24 }, .want = .{ .flags = 0x24, .pc = testPc + 6 } }, // bne taken
+        .{ .opcode = 0x10, .operand = &.{0x04}, .setup = .{ .flags = 0x24 }, .want = .{ .flags = 0x24, .pc = testPc + 6 } }, // bpl taken
+        .{ .opcode = 0x30, .operand = &.{0x04}, .setup = .{ .flags = 0xa4 }, .want = .{ .flags = 0xa4, .pc = testPc + 6 } }, // bmi taken
+        .{ .opcode = 0x50, .operand = &.{0x04}, .setup = .{ .flags = 0x24 }, .want = .{ .flags = 0x24, .pc = testPc + 6 } }, // bvc taken
+        .{ .opcode = 0x70, .operand = &.{0x04}, .setup = .{ .flags = 0x64 }, .want = .{ .flags = 0x64, .pc = testPc + 6 } }, // bvs taken
+        .{ .opcode = 0xd0, .operand = &.{0xfc}, .setup = .{ .flags = 0x24 }, .want = .{ .flags = 0x24, .pc = testPc - 2 } }, // bne taken backward
+
         .{ .opcode = 0x85, .operand = &.{0x80}, .setup = .{ .a = 0x42 }, .want = .{ .a = 0x42, .mem = .{ .addr = 0x0080, .value = 0x42 } } }, // sta zero page
         .{ .opcode = 0x86, .operand = &.{0x80}, .setup = .{ .x = 0x43 }, .want = .{ .x = 0x43, .mem = .{ .addr = 0x0080, .value = 0x43 } } }, // stx zero page
         .{ .opcode = 0x84, .operand = &.{0x80}, .setup = .{ .y = 0x44 }, .want = .{ .y = 0x44, .mem = .{ .addr = 0x0080, .value = 0x44 } } }, // sty zero page
@@ -248,7 +260,7 @@ test "instructions execution" {
         if (case.want.mem) |mem| {
             try testing.expectEqual(mem.value, system.busRead(mem.addr));
         }
-        const wantPc = testPc + @as(u16, @intCast(1 + case.operand.len));
+        const wantPc = case.want.pc orelse testPc + @as(u16, @intCast(1 + case.operand.len));
         try testing.expectEqual(wantPc, system.cpu.pc);
     }
 }
