@@ -157,6 +157,49 @@ test "instructions execution" {
         .{ .opcode = 0xb1, .operand = &.{0x80}, .setup = .{ .y = 0x04, .read = .{ .addr = 0x1234 }, .ptr = .{ .addr = 0x80, .value = 0x1230 } }, .want = .{ .a = 0x42, .y = 0x04 } }, // lda (indirect),y
         .{ .opcode = 0xb1, .operand = &.{0xff}, .setup = .{ .y = 0x01, .read = .{ .addr = 0x1300 }, .ptr = .{ .addr = 0xff, .value = 0x12ff } }, .want = .{ .a = 0x42, .y = 0x01 } }, // lda (indirect),y wraps pointer and page-crosses
 
+        .{ .opcode = 0x29, .operand = &.{0x0f}, .setup = .{ .a = 0xf3 }, .want = .{ .a = 0x03 } }, // and immediate
+        .{ .opcode = 0x25, .operand = &.{0x80}, .setup = .{ .a = 0xf0, .read = .{ .addr = 0x0080, .value = 0x0f } }, .want = .{ .a = 0x00, .flags = 0x26 } }, // and zero page sets z
+        .{ .opcode = 0x35, .operand = &.{0x80}, .setup = .{ .a = 0xff, .x = 0x04, .read = .{ .addr = 0x0084, .value = 0x80 } }, .want = .{ .a = 0x80, .x = 0x04, .flags = 0xa4 } }, // and zero page,x sets n
+        .{ .opcode = 0x2d, .operand = &.{ 0x34, 0x12 }, .setup = .{ .a = 0xf3, .read = .{ .addr = 0x1234, .value = 0x0f } }, .want = .{ .a = 0x03 } }, // and absolute
+        .{ .opcode = 0x3d, .operand = &.{ 0x30, 0x12 }, .setup = .{ .a = 0xff, .x = 0x04, .read = .{ .addr = 0x1234, .value = 0x7f } }, .want = .{ .a = 0x7f, .x = 0x04 } }, // and absolute,x
+        .{ .opcode = 0x39, .operand = &.{ 0xff, 0x12 }, .setup = .{ .a = 0xff, .y = 0x01, .read = .{ .addr = 0x1300, .value = 0x40 } }, .want = .{ .a = 0x40, .y = 0x01 } }, // and absolute,y page-cross
+        .{ .opcode = 0x21, .operand = &.{0x80}, .setup = .{ .a = 0xff, .x = 0x04, .read = .{ .addr = 0x1234, .value = 0x22 }, .ptr = .{ .addr = 0x84, .value = 0x1234 } }, .want = .{ .a = 0x22, .x = 0x04 } }, // and (indirect,x)
+        .{ .opcode = 0x31, .operand = &.{0x80}, .setup = .{ .a = 0xff, .y = 0x04, .read = .{ .addr = 0x1234, .value = 0x11 }, .ptr = .{ .addr = 0x80, .value = 0x1230 } }, .want = .{ .a = 0x11, .y = 0x04 } }, // and (indirect),y
+
+        .{ .opcode = 0x09, .operand = &.{0x0f}, .setup = .{ .a = 0xf0 }, .want = .{ .a = 0xff, .flags = 0xa4 } }, // ora immediate
+        .{ .opcode = 0x05, .operand = &.{0x80}, .setup = .{ .a = 0x00, .read = .{ .addr = 0x0080, .value = 0x00 } }, .want = .{ .a = 0x00, .flags = 0x26 } }, // ora zero page sets z
+        .{ .opcode = 0x15, .operand = &.{0x80}, .setup = .{ .a = 0x01, .x = 0x04, .read = .{ .addr = 0x0084, .value = 0x02 } }, .want = .{ .a = 0x03, .x = 0x04 } }, // ora zero page,x
+        .{ .opcode = 0x0d, .operand = &.{ 0x34, 0x12 }, .setup = .{ .a = 0x10, .read = .{ .addr = 0x1234, .value = 0x02 } }, .want = .{ .a = 0x12 } }, // ora absolute
+        .{ .opcode = 0x1d, .operand = &.{ 0x30, 0x12 }, .setup = .{ .a = 0x40, .x = 0x04, .read = .{ .addr = 0x1234, .value = 0x80 } }, .want = .{ .a = 0xc0, .x = 0x04, .flags = 0xa4 } }, // ora absolute,x
+        .{ .opcode = 0x19, .operand = &.{ 0xff, 0x12 }, .setup = .{ .a = 0x20, .y = 0x01, .read = .{ .addr = 0x1300, .value = 0x01 } }, .want = .{ .a = 0x21, .y = 0x01 } }, // ora absolute,y page-cross
+        .{ .opcode = 0x01, .operand = &.{0x80}, .setup = .{ .a = 0x01, .x = 0x04, .read = .{ .addr = 0x1234, .value = 0x04 }, .ptr = .{ .addr = 0x84, .value = 0x1234 } }, .want = .{ .a = 0x05, .x = 0x04 } }, // ora (indirect,x)
+        .{ .opcode = 0x11, .operand = &.{0x80}, .setup = .{ .a = 0x01, .y = 0x04, .read = .{ .addr = 0x1234, .value = 0x08 }, .ptr = .{ .addr = 0x80, .value = 0x1230 } }, .want = .{ .a = 0x09, .y = 0x04 } }, // ora (indirect),y
+
+        .{ .opcode = 0x49, .operand = &.{0xff}, .setup = .{ .a = 0x0f }, .want = .{ .a = 0xf0, .flags = 0xa4 } }, // eor immediate
+        .{ .opcode = 0x45, .operand = &.{0x80}, .setup = .{ .a = 0xaa, .read = .{ .addr = 0x0080, .value = 0xaa } }, .want = .{ .a = 0x00, .flags = 0x26 } }, // eor zero page sets z
+        .{ .opcode = 0x55, .operand = &.{0x80}, .setup = .{ .a = 0x0f, .x = 0x04, .read = .{ .addr = 0x0084, .value = 0xf0 } }, .want = .{ .a = 0xff, .x = 0x04, .flags = 0xa4 } }, // eor zero page,x
+        .{ .opcode = 0x4d, .operand = &.{ 0x34, 0x12 }, .setup = .{ .a = 0xf0, .read = .{ .addr = 0x1234, .value = 0x0f } }, .want = .{ .a = 0xff, .flags = 0xa4 } }, // eor absolute
+        .{ .opcode = 0x5d, .operand = &.{ 0x30, 0x12 }, .setup = .{ .a = 0xff, .x = 0x04, .read = .{ .addr = 0x1234, .value = 0x7f } }, .want = .{ .a = 0x80, .x = 0x04, .flags = 0xa4 } }, // eor absolute,x
+        .{ .opcode = 0x59, .operand = &.{ 0xff, 0x12 }, .setup = .{ .a = 0xff, .y = 0x01, .read = .{ .addr = 0x1300, .value = 0xfe } }, .want = .{ .a = 0x01, .y = 0x01 } }, // eor absolute,y page-cross
+        .{ .opcode = 0x41, .operand = &.{0x80}, .setup = .{ .a = 0xf0, .x = 0x04, .read = .{ .addr = 0x1234, .value = 0x0f }, .ptr = .{ .addr = 0x84, .value = 0x1234 } }, .want = .{ .a = 0xff, .x = 0x04, .flags = 0xa4 } }, // eor (indirect,x)
+        .{ .opcode = 0x51, .operand = &.{0x80}, .setup = .{ .a = 0x0f, .y = 0x04, .read = .{ .addr = 0x1234, .value = 0x0e }, .ptr = .{ .addr = 0x80, .value = 0x1230 } }, .want = .{ .a = 0x01, .y = 0x04 } }, // eor (indirect),y
+
+        .{ .opcode = 0xc9, .operand = &.{0x40}, .setup = .{ .a = 0x40 }, .want = .{ .a = 0x40, .flags = 0x27 } }, // cmp immediate equal
+        .{ .opcode = 0xc5, .operand = &.{0x80}, .setup = .{ .a = 0x20, .read = .{ .addr = 0x0080, .value = 0x40 } }, .want = .{ .a = 0x20, .flags = 0xa4 } }, // cmp zero page less
+        .{ .opcode = 0xd5, .operand = &.{0x80}, .setup = .{ .a = 0x50, .x = 0x04, .read = .{ .addr = 0x0084, .value = 0x40 } }, .want = .{ .a = 0x50, .x = 0x04, .flags = 0x25 } }, // cmp zero page,x greater
+        .{ .opcode = 0xcd, .operand = &.{ 0x34, 0x12 }, .setup = .{ .a = 0x40, .read = .{ .addr = 0x1234, .value = 0x40 } }, .want = .{ .a = 0x40, .flags = 0x27 } }, // cmp absolute equal
+        .{ .opcode = 0xdd, .operand = &.{ 0x30, 0x12 }, .setup = .{ .a = 0x50, .x = 0x04, .read = .{ .addr = 0x1234, .value = 0x40 } }, .want = .{ .a = 0x50, .x = 0x04, .flags = 0x25 } }, // cmp absolute,x
+        .{ .opcode = 0xd9, .operand = &.{ 0xff, 0x12 }, .setup = .{ .a = 0x20, .y = 0x01, .read = .{ .addr = 0x1300, .value = 0x40 } }, .want = .{ .a = 0x20, .y = 0x01, .flags = 0xa4 } }, // cmp absolute,y page-cross
+        .{ .opcode = 0xc1, .operand = &.{0x80}, .setup = .{ .a = 0x40, .x = 0x04, .read = .{ .addr = 0x1234, .value = 0x40 }, .ptr = .{ .addr = 0x84, .value = 0x1234 } }, .want = .{ .a = 0x40, .x = 0x04, .flags = 0x27 } }, // cmp (indirect,x)
+        .{ .opcode = 0xd1, .operand = &.{0x80}, .setup = .{ .a = 0x50, .y = 0x04, .read = .{ .addr = 0x1234, .value = 0x40 }, .ptr = .{ .addr = 0x80, .value = 0x1230 } }, .want = .{ .a = 0x50, .y = 0x04, .flags = 0x25 } }, // cmp (indirect),y
+
+        .{ .opcode = 0xe0, .operand = &.{0x40}, .setup = .{ .x = 0x40 }, .want = .{ .x = 0x40, .flags = 0x27 } }, // cpx immediate equal
+        .{ .opcode = 0xe4, .operand = &.{0x80}, .setup = .{ .x = 0x20, .read = .{ .addr = 0x0080, .value = 0x40 } }, .want = .{ .x = 0x20, .flags = 0xa4 } }, // cpx zero page less
+        .{ .opcode = 0xec, .operand = &.{ 0x34, 0x12 }, .setup = .{ .x = 0x50, .read = .{ .addr = 0x1234, .value = 0x40 } }, .want = .{ .x = 0x50, .flags = 0x25 } }, // cpx absolute greater
+        .{ .opcode = 0xc0, .operand = &.{0x40}, .setup = .{ .y = 0x40 }, .want = .{ .y = 0x40, .flags = 0x27 } }, // cpy immediate equal
+        .{ .opcode = 0xc4, .operand = &.{0x80}, .setup = .{ .y = 0x20, .read = .{ .addr = 0x0080, .value = 0x40 } }, .want = .{ .y = 0x20, .flags = 0xa4 } }, // cpy zero page less
+        .{ .opcode = 0xcc, .operand = &.{ 0x34, 0x12 }, .setup = .{ .y = 0x50, .read = .{ .addr = 0x1234, .value = 0x40 } }, .want = .{ .y = 0x50, .flags = 0x25 } }, // cpy absolute greater
+
         .{ .opcode = 0x85, .operand = &.{0x80}, .setup = .{ .a = 0x42 }, .want = .{ .a = 0x42, .mem = .{ .addr = 0x0080, .value = 0x42 } } }, // sta zero page
         .{ .opcode = 0x86, .operand = &.{0x80}, .setup = .{ .x = 0x43 }, .want = .{ .x = 0x43, .mem = .{ .addr = 0x0080, .value = 0x43 } } }, // stx zero page
         .{ .opcode = 0x84, .operand = &.{0x80}, .setup = .{ .y = 0x44 }, .want = .{ .y = 0x44, .mem = .{ .addr = 0x0080, .value = 0x44 } } }, // sty zero page

@@ -225,15 +225,26 @@ pub const Register8 = enum { a, x, y };
 
 const StatusFlag = enum { c, i };
 
+const AluOp = enum {
+    @"and",
+    ora,
+    eor,
+};
+
 const MicroOp = union(enum) {
     dummyReadPc,
     resolveAddr,
     readValue,
+
     writeReg: Register8,
-    loadRegSetNZ: Register8,
-    transferRegSetNZ: struct { src: Register8, dst: Register8 },
+    loadReg: Register8,
+    transferReg: struct { src: Register8, dst: Register8 },
     incrementReg: Register8,
     decrementReg: Register8,
+    compareReg: Register8,
+
+    aluA: AluOp,
+
     setFlag: struct { flag: StatusFlag, value: bool },
     done,
 };
@@ -254,10 +265,16 @@ pub const Instruction = struct {
             .sta => storeOps(.a),
             .stx => storeOps(.x),
             .sty => storeOps(.y),
-            .tax => impliedOps(.{ .transferRegSetNZ = .{ .src = .a, .dst = .x } }),
-            .txa => impliedOps(.{ .transferRegSetNZ = .{ .src = .x, .dst = .a } }),
-            .tay => impliedOps(.{ .transferRegSetNZ = .{ .src = .a, .dst = .y } }),
-            .tya => impliedOps(.{ .transferRegSetNZ = .{ .src = .y, .dst = .a } }),
+            .@"and" => aluAOps(.@"and"),
+            .ora => aluAOps(.ora),
+            .eor => aluAOps(.eor),
+            .cmp => compareOps(.a),
+            .cpx => compareOps(.x),
+            .cpy => compareOps(.y),
+            .tax => impliedOps(.{ .transferReg = .{ .src = .a, .dst = .x } }),
+            .txa => impliedOps(.{ .transferReg = .{ .src = .x, .dst = .a } }),
+            .tay => impliedOps(.{ .transferReg = .{ .src = .a, .dst = .y } }),
+            .tya => impliedOps(.{ .transferReg = .{ .src = .y, .dst = .a } }),
             .inx => impliedOps(.{ .incrementReg = .x }),
             .dex => impliedOps(.{ .decrementReg = .x }),
             .iny => impliedOps(.{ .incrementReg = .y }),
@@ -274,6 +291,7 @@ pub const Instruction = struct {
         while (true) {
             const op = self.ops[self.opStep];
             var busOp: ?BusOp = null;
+            // TODO: restructure addressing so it loops separately before the actual instruction.
             var advance = true;
 
             switch (op) {
@@ -287,10 +305,12 @@ pub const Instruction = struct {
                 .dummyReadPc => busOp = .{ .read = cpu.pc },
                 .readValue => busOp = .{ .read = self.addr },
                 .writeReg => |r| busOp = .{ .write = .{ .addr = self.addr, .value = cpu.readReg(r) } },
-                .loadRegSetNZ => |r| cpu.setNZ(r, input orelse panic("stage {s} must have an input", .{@tagName(op)})),
-                .transferRegSetNZ => |t| cpu.setNZ(t.dst, cpu.readReg(t.src)),
-                .incrementReg => |r| cpu.setNZ(r, cpu.readReg(r) +% 1),
-                .decrementReg => |r| cpu.setNZ(r, cpu.readReg(r) -% 1),
+                .loadReg => |r| cpu.setRegNZ(r, input.?),
+                .transferReg => |t| cpu.setRegNZ(t.dst, cpu.readReg(t.src)),
+                .incrementReg => |r| cpu.setRegNZ(r, cpu.readReg(r) +% 1),
+                .decrementReg => |r| cpu.setRegNZ(r, cpu.readReg(r) -% 1),
+                .compareReg => |r| cpu.compare(cpu.readReg(r), input.?),
+                .aluA => |aluOp| cpu.setRegNZ(.a, cpu.aluA(aluOp, input.?)),
                 .setFlag => |f| cpu.setStatusFlag(f.flag, f.value),
                 .done => return null,
             }
@@ -314,11 +334,19 @@ fn impliedOps(comptime op: MicroOp) []const MicroOp {
 }
 
 pub fn loadOps(comptime r: Register8) []const MicroOp {
-    return &.{ .resolveAddr, .readValue, .{ .loadRegSetNZ = r }, .done };
+    return &.{ .resolveAddr, .readValue, .{ .loadReg = r }, .done };
 }
 
 pub fn storeOps(comptime r: Register8) []const MicroOp {
     return &.{ .resolveAddr, .{ .writeReg = r }, .done };
+}
+
+pub fn aluAOps(comptime op: AluOp) []const MicroOp {
+    return &.{ .resolveAddr, .readValue, .{ .aluA = op }, .done };
+}
+
+pub fn compareOps(comptime r: Register8) []const MicroOp {
+    return &.{ .resolveAddr, .readValue, .{ .compareReg = r }, .done };
 }
 
 pub const Cpu = struct {
@@ -341,21 +369,44 @@ pub const Cpu = struct {
         };
     }
 
-    pub fn setNZ(self: *Cpu, reg: Register8, value: u8) void {
+    pub fn setReg(self: *Cpu, reg: Register8, value: u8) void {
         switch (reg) {
             .a => self.a = value,
             .x => self.x = value,
             .y => self.y = value,
         }
+    }
+
+    pub fn setNZ(self: *Cpu, value: u8) void {
         self.flags.z = value == 0;
         self.flags.n = (value & 0x80) != 0;
     }
 
+    pub fn setRegNZ(self: *Cpu, reg: Register8, value: u8) void {
+        self.setReg(reg, value);
+        self.setNZ(value);
+    }
+
+    // TODO: probably refactor/simplify this.
     pub fn setStatusFlag(self: *Cpu, flag: StatusFlag, value: bool) void {
         switch (flag) {
             .c => self.flags.c = value,
             .i => self.flags.i = value,
         }
+    }
+
+    pub fn aluA(self: *Cpu, op: AluOp, value: u8) u8 {
+        return switch (op) {
+            .@"and" => self.a & value,
+            .ora => self.a | value,
+            .eor => self.a ^ value,
+        };
+    }
+
+    pub fn compare(self: *Cpu, reg: u8, value: u8) void {
+        self.flags.z = reg == value;
+        self.flags.c = reg >= value;
+        self.flags.n = ((reg -% value) & 0x80) != 0;
     }
 };
 

@@ -5,6 +5,8 @@ const testing = std.testing;
 pub const Mnemonic = enum(u6) {
     nop,
     lda, ldx, ldy,
+    @"and", ora, eor,
+    cmp, cpx, cpy,
     tax, txa, tay, tya,
     inx, dex,
     iny, dey,
