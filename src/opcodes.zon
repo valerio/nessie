@@ -86,6 +86,7 @@
     .{ .op = 0x70, .mnemonic = .bvs, .mode = .relative, .bytes = 2 },
 
     .{ .op = 0x4c, .mnemonic = .jmp, .mode = .absolute, .bytes = 3 },
+    .{ .op = 0x6c, .mnemonic = .jmp, .mode = .indirect, .bytes = 3 },
 
     .{ .op = 0xaa, .mnemonic = .tax, .mode = .implied, .bytes = 1 },
     .{ .op = 0x8a, .mnemonic = .txa, .mode = .implied, .bytes = 1 },

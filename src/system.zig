@@ -104,6 +104,7 @@ test "instructions execution" {
         flags: u8 = 0x24,
         read: ?struct { addr: u16, value: u8 = 0x42 } = null,
         ptr: ?struct { addr: u8, value: u16 } = null,
+        addrPtr: ?struct { addr: u16, value: u16 } = null,
     };
     const Want = struct {
         a: u8 = 0,
@@ -213,6 +214,8 @@ test "instructions execution" {
         .{ .opcode = 0xd0, .operand = &.{0xfc}, .setup = .{ .flags = 0x24 }, .want = .{ .flags = 0x24, .pc = testPc - 2 } }, // bne taken backward
 
         .{ .opcode = 0x4c, .operand = &.{ 0x34, 0x12 }, .want = .{ .pc = 0x1234 } }, // jmp absolute
+        .{ .opcode = 0x6c, .operand = &.{ 0x34, 0x12 }, .setup = .{ .addrPtr = .{ .addr = 0x1234, .value = 0xabcd } }, .want = .{ .pc = 0xabcd } }, // jmp indirect
+        .{ .opcode = 0x6c, .operand = &.{ 0xff, 0x13 }, .setup = .{ .addrPtr = .{ .addr = 0x13ff, .value = 0xabcd } }, .want = .{ .pc = 0xabcd } }, // jmp indirect wraps pointer high byte
 
         .{ .opcode = 0x85, .operand = &.{0x80}, .setup = .{ .a = 0x42 }, .want = .{ .a = 0x42, .mem = .{ .addr = 0x0080, .value = 0x42 } } }, // sta zero page
         .{ .opcode = 0x86, .operand = &.{0x80}, .setup = .{ .x = 0x43 }, .want = .{ .x = 0x43, .mem = .{ .addr = 0x0080, .value = 0x43 } } }, // stx zero page
@@ -250,6 +253,10 @@ test "instructions execution" {
         if (case.setup.ptr) |ptr| {
             system.busWrite(ptr.addr, @truncate(ptr.value));
             system.busWrite(ptr.addr +% 1, @truncate(ptr.value >> 8));
+        }
+        if (case.setup.addrPtr) |ptr| {
+            system.busWrite(ptr.addr, @truncate(ptr.value));
+            system.busWrite((ptr.addr & 0xff00) | ((ptr.addr +% 1) & 0x00ff), @truncate(ptr.value >> 8));
         }
         if (case.setup.read) |read| system.busWrite(read.addr, read.value);
 

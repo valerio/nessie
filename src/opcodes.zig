@@ -30,6 +30,7 @@ pub const AddrMode = enum(u4) {
     absolute,
     absoluteX,
     absoluteY,
+    indirect,
     indirectX,
     indirectY,
     relative,

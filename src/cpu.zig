@@ -94,6 +94,11 @@ const AddrResolver = struct {
         indexIndirectX: struct { zpAddr: u8 },
         readIndirectLow: struct { zpAddr: u8 },
         readIndirectHigh: struct { zpAddr: u8, low: u8 },
+
+        // JMP indirect has a hardware bug: pointer high byte wraps within the same page.
+        readJumpTargetLow: u16,
+        readJumpTargetHigh: u8,
+
         dummyRead: struct { addr: u16 },
         resolved: struct { addr: u16 },
     };
@@ -113,7 +118,7 @@ const AddrResolver = struct {
                 self.state = switch (mode) {
                     .immediate => .{ .resolved = .{ .addr = addr } },
                     .zeroPage, .zeroPageX, .zeroPageY, .indirectX, .indirectY => .readOperand,
-                    .absolute, .absoluteX, .absoluteY => .readOperandLow,
+                    .absolute, .absoluteX, .absoluteY, .indirect => .readOperandLow,
                     else => panic("address mode {} is unimplemented", .{mode}),
                 };
 
@@ -169,6 +174,13 @@ const AddrResolver = struct {
                 const baseAddr =
                     (@as(u16, highByte) << 8) |
                     @as(u16, state.low);
+
+                // special case for JMP indirect addressing, it reads a 16 target address.
+                if (mode == .indirect) {
+                    self.state = .{ .readJumpTargetLow = baseAddr };
+                    return .{ .pending = .{ .read = baseAddr } };
+                }
+
                 const index: u16 = switch (mode) {
                     .absolute => 0,
                     .absoluteX => cpu.x,
@@ -211,6 +223,18 @@ const AddrResolver = struct {
                     },
                     else => panic("address mode {} does not apply to state {}", .{ mode, self.state }),
                 }
+            },
+            .readJumpTargetLow => |ptr| {
+                const low = input.?;
+                const highAddr = if ((ptr & 0x00ff) == 0x00ff) ptr & 0xff00 else ptr +% 1;
+                self.state = .{ .readJumpTargetHigh = low };
+                return .{ .pending = .{ .read = highAddr } };
+            },
+            .readJumpTargetHigh => |low| {
+                const highByte = input.?;
+                const addr = (@as(u16, highByte) << 8) | @as(u16, low);
+                self.state = .{ .resolved = .{ .addr = addr } };
+                return .{ .done = addr };
             },
             .dummyRead => |state| {
                 self.state = .{ .resolved = .{ .addr = state.addr } };
