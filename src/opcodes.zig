@@ -14,6 +14,7 @@ pub const Mnemonic = enum(u6) {
     beq, bne,
     bpl, bmi,
     bvc, bvs,
+    jmp,
     clc, sec,
     cli, sei,
     sta, stx, sty,

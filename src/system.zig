@@ -212,6 +212,8 @@ test "instructions execution" {
         .{ .opcode = 0x70, .operand = &.{0x04}, .setup = .{ .flags = 0x64 }, .want = .{ .flags = 0x64, .pc = testPc + 6 } }, // bvs taken
         .{ .opcode = 0xd0, .operand = &.{0xfc}, .setup = .{ .flags = 0x24 }, .want = .{ .flags = 0x24, .pc = testPc - 2 } }, // bne taken backward
 
+        .{ .opcode = 0x4c, .operand = &.{ 0x34, 0x12 }, .want = .{ .pc = 0x1234 } }, // jmp absolute
+
         .{ .opcode = 0x85, .operand = &.{0x80}, .setup = .{ .a = 0x42 }, .want = .{ .a = 0x42, .mem = .{ .addr = 0x0080, .value = 0x42 } } }, // sta zero page
         .{ .opcode = 0x86, .operand = &.{0x80}, .setup = .{ .x = 0x43 }, .want = .{ .x = 0x43, .mem = .{ .addr = 0x0080, .value = 0x43 } } }, // stx zero page
         .{ .opcode = 0x84, .operand = &.{0x80}, .setup = .{ .y = 0x44 }, .want = .{ .y = 0x44, .mem = .{ .addr = 0x0080, .value = 0x44 } } }, // sty zero page

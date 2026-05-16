@@ -308,6 +308,7 @@ const MicroOp = union(enum) {
 
     aluA: AluOp,
     branch: BranchCondition,
+    jump,
 
     setFlag: struct { flag: StatusFlag, value: bool },
     done,
@@ -336,6 +337,7 @@ pub const Instruction = struct {
             .cmp => compareOps(.a),
             .cpx => compareOps(.x),
             .cpy => compareOps(.y),
+            .jmp => jumpOps(),
             .bcc => branchOps(.c, false),
             .bcs => branchOps(.c, true),
             .beq => branchOps(.z, true),
@@ -388,6 +390,7 @@ pub const Instruction = struct {
                     busOp = self.branchResolver.step(condition, cpu, input);
                     advance = busOp == null;
                 },
+                .jump => cpu.pc = self.addr,
                 .setFlag => |f| cpu.setStatusFlag(f.flag, f.value),
                 .done => return null,
             }
@@ -428,6 +431,10 @@ pub fn compareOps(comptime r: Register8) []const MicroOp {
 
 pub fn branchOps(comptime flag: StatusFlag, comptime set: bool) []const MicroOp {
     return &.{ .{ .branch = .{ .flag = flag, .set = set } }, .done };
+}
+
+pub fn jumpOps() []const MicroOp {
+    return &.{ .resolveAddr, .jump, .done };
 }
 
 pub const Cpu = struct {
