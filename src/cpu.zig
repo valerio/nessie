@@ -62,12 +62,12 @@ pub fn exec(c: *Cpu, ctx: anytype) void {
         .zeroPage => addressing.zeroPage(c, ctx, null),
         .zeroPageX => addressing.zeroPage(c, ctx, .x),
         .zeroPageY => addressing.zeroPage(c, ctx, .y),
-        .absolute => addressing.absolute(c, ctx, null),
-        .absoluteX => addressing.absolute(c, ctx, .x),
-        .absoluteY => addressing.absolute(c, ctx, .y),
+        .absolute => addressing.absolute(c, ctx, null, opcode.forceDummyRead),
+        .absoluteX => addressing.absolute(c, ctx, .x, opcode.forceDummyRead),
+        .absoluteY => addressing.absolute(c, ctx, .y, opcode.forceDummyRead),
         .indirect => addressing.indirect(c, ctx),
-        .indirectX => addressing.indirectIndexed(c, ctx, .x),
-        .indirectY => addressing.indirectIndexed(c, ctx, .y),
+        .indirectX => addressing.indirectIndexed(c, ctx, .x, opcode.forceDummyRead),
+        .indirectY => addressing.indirectIndexed(c, ctx, .y, opcode.forceDummyRead),
         .relative => addressing.relative(c, ctx),
     };
 

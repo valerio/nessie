@@ -26,7 +26,7 @@ pub fn zeroPage(cpu: *Cpu, ctx: anytype, comptime r: ?Register8) u16 {
     return (addr +% cpu.readReg(r.?)) & 0xff;
 }
 
-pub fn absolute(cpu: *Cpu, ctx: anytype, comptime r: ?Register8) u16 {
+pub fn absolute(cpu: *Cpu, ctx: anytype, comptime r: ?Register8, forceDummyRead: bool) u16 {
     const lo = ctx.read(cpu.pc);
     cpu.pc +%= 1;
 
@@ -37,8 +37,7 @@ pub fn absolute(cpu: *Cpu, ctx: anytype, comptime r: ?Register8) u16 {
     if (r == null) return base;
 
     const addr = (base +% cpu.readReg(r.?));
-    // TODO: some instructions will always do this dummy read regardless.
-    if ((base & 0xff00) != (addr & 0xff00)) {
+    if (forceDummyRead or (base & 0xff00) != (addr & 0xff00)) {
         _ = ctx.read((base & 0xff00) | (addr & 0x00ff));
     }
     return addr;
@@ -62,7 +61,7 @@ pub fn indirect(cpu: *Cpu, ctx: anytype) u16 {
     return @as(u16, addrHi) << 8 | addrLo;
 }
 
-pub fn indirectIndexed(cpu: *Cpu, ctx: anytype, comptime r: Register8) u16 {
+pub fn indirectIndexed(cpu: *Cpu, ctx: anytype, comptime r: Register8, forceDummyRead: bool) u16 {
     const operand = ctx.read(cpu.pc);
     cpu.pc +%= 1;
 
@@ -83,7 +82,7 @@ pub fn indirectIndexed(cpu: *Cpu, ctx: anytype, comptime r: Register8) u16 {
     if (r == .x) return base;
 
     const addr = base +% cpu.y;
-    if ((base & 0xff00) != (addr & 0xff00)) {
+    if (forceDummyRead or (base & 0xff00) != (addr & 0xff00)) {
         _ = ctx.read((base & 0xff00) | (addr & 0x00ff));
     }
     return addr;
