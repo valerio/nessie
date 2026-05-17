@@ -8,6 +8,14 @@ pub fn immediate(cpu: *Cpu) u16 {
     return addr;
 }
 
+pub fn relative(cpu: *Cpu, ctx: anytype) u16 {
+    const offset = ctx.read(cpu.pc);
+    cpu.pc +%= 1;
+
+    if (offset < 0x80) return cpu.pc +% offset;
+    return cpu.pc -% (0x100 - @as(u16, offset));
+}
+
 pub fn zeroPage(cpu: *Cpu, ctx: anytype, comptime r: ?Register8) u16 {
     const addr = ctx.read(cpu.pc);
     cpu.pc +%= 1;
@@ -52,4 +60,31 @@ pub fn indirect(cpu: *Cpu, ctx: anytype) u16 {
 
     cpu.pc +%= 1;
     return @as(u16, addrHi) << 8 | addrLo;
+}
+
+pub fn indirectIndexed(cpu: *Cpu, ctx: anytype, comptime r: Register8) u16 {
+    const operand = ctx.read(cpu.pc);
+    cpu.pc +%= 1;
+
+    var ptr: u8 = undefined;
+    switch (r) {
+        .x => {
+            ctx.idle(cpu.pc);
+            ptr = operand +% cpu.x;
+        },
+        .y => ptr = operand,
+        else => @compileError("invalid register for indirectIndexed"),
+    }
+
+    const lo = ctx.read(ptr);
+    const hi = ctx.read(ptr +% 1);
+    const base: u16 = @as(u16, hi) << 8 | lo;
+
+    if (r == .x) return base;
+
+    const addr = base +% cpu.y;
+    if ((base & 0xff00) != (addr & 0xff00)) {
+        ctx.idle(cpu.pc); // TODO dummy read
+    }
+    return addr;
 }

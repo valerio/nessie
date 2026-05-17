@@ -146,10 +146,11 @@ test "instruction execution (context)" {
         ptr: ?struct { addr: u16, value: u16 } = null,
         setupX: u8 = 0,
         setupY: u8 = 0,
+        setupFlags: u8 = 0x24,
         wantA: u8 = 0,
         wantX: ?u8 = null,
         wantY: ?u8 = null,
-        wantFlags: u8 = 0x24,
+        wantFlags: ?u8 = null,
         wantPc: ?u16 = null,
     }{
         .{ .opcode = 0xea }, // nop
@@ -161,14 +162,22 @@ test "instruction execution (context)" {
         .{ .opcode = 0xad, .operand = &.{ 0x34, 0x12 }, .read = .{ .addr = 0x1234, .value = 0x45 }, .wantA = 0x45 }, // lda absolute
         .{ .opcode = 0xbd, .operand = &.{ 0x30, 0x12 }, .setupX = 0x04, .read = .{ .addr = 0x1234, .value = 0x46 }, .wantA = 0x46 }, // lda absolute,x
         .{ .opcode = 0xb9, .operand = &.{ 0xff, 0x12 }, .setupY = 0x01, .read = .{ .addr = 0x1300, .value = 0x47 }, .wantA = 0x47 }, // lda absolute,y page-cross
+        .{ .opcode = 0xa1, .operand = &.{0x80}, .setupX = 0x04, .ptr = .{ .addr = 0x84, .value = 0x1234 }, .read = .{ .addr = 0x1234, .value = 0x49 }, .wantA = 0x49 }, // lda (indirect,x)
+        .{ .opcode = 0xa1, .operand = &.{0xff}, .setupX = 0x01, .ptr = .{ .addr = 0x00, .value = 0x1234 }, .read = .{ .addr = 0x1234, .value = 0x4a }, .wantA = 0x4a }, // lda (indirect,x) wraps pointer
+        .{ .opcode = 0xb1, .operand = &.{0x80}, .setupY = 0x04, .ptr = .{ .addr = 0x80, .value = 0x1230 }, .read = .{ .addr = 0x1234, .value = 0x4b }, .wantA = 0x4b }, // lda (indirect),y
+        .{ .opcode = 0xb1, .operand = &.{0xff}, .setupY = 0x01, .ptr = .{ .addr = 0xff, .value = 0x12ff }, .read = .{ .addr = 0x1300, .value = 0x4c }, .wantA = 0x4c }, // lda (indirect),y wraps pointer and page-crosses
         .{ .opcode = 0xbc, .operand = &.{ 0x30, 0x12 }, .setupX = 0x04, .read = .{ .addr = 0x1234, .value = 0x48 }, .wantY = 0x48 }, // ldy absolute,x
         .{ .opcode = 0x4c, .operand = &.{ 0x34, 0x12 }, .wantPc = 0x1234 }, // jmp absolute
         .{ .opcode = 0x6c, .operand = &.{ 0x34, 0x12 }, .ptr = .{ .addr = 0x1234, .value = 0xabcd }, .wantPc = 0xabcd }, // jmp indirect
         .{ .opcode = 0x6c, .operand = &.{ 0xff, 0x13 }, .ptr = .{ .addr = 0x13ff, .value = 0xabcd }, .wantPc = 0xabcd }, // jmp indirect wraps pointer high byte
+        .{ .opcode = 0x90, .operand = &.{0x04}, .wantPc = testPc + 6 }, // bcc taken forward
+        .{ .opcode = 0x90, .operand = &.{0x04}, .setupFlags = 0x25 }, // bcc not taken
+        .{ .opcode = 0xf0, .operand = &.{0x04}, .setupFlags = 0x26, .wantPc = testPc + 6 }, // beq taken
+        .{ .opcode = 0xd0, .operand = &.{0xfc}, .wantPc = testPc - 2 }, // bne taken backward
     };
 
     for (testCases, 0..) |case, caseIndex| {
-        errdefer std.debug.print("failed spike instruction case {d}: opcode 0x{x:0>2}\n", .{ caseIndex, case.opcode });
+        errdefer std.debug.print("failed instruction case {d}: opcode 0x{x:0>2}\n", .{ caseIndex, case.opcode });
 
         const romdata = [_]u8{0} ** 0x4000;
         var nrom = mappers.Nrom.init(romdata[0..]);
@@ -177,6 +186,7 @@ test "instruction execution (context)" {
         system.cpu.pc = testPc;
         system.cpu.x = case.setupX;
         system.cpu.y = case.setupY;
+        system.cpu.flags = cpu.Flags.fromByte(case.setupFlags);
         system.busWrite(testPc, case.opcode);
         for (case.operand, 0..) |byte, index| {
             system.busWrite(testPc + @as(u16, @intCast(1 + index)), byte);
@@ -192,7 +202,7 @@ test "instruction execution (context)" {
         try testing.expectEqual(case.wantA, system.cpu.a);
         try testing.expectEqual(case.wantX orelse case.setupX, system.cpu.x);
         try testing.expectEqual(case.wantY orelse case.setupY, system.cpu.y);
-        try testing.expectEqual(case.wantFlags, system.cpu.flags.toByte());
+        try testing.expectEqual(case.wantFlags orelse case.setupFlags, system.cpu.flags.toByte());
         try testing.expectEqual(case.wantPc orelse testPc + @as(u16, @intCast(1 + case.operand.len)), system.cpu.pc);
     }
 }

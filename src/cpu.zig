@@ -66,8 +66,9 @@ pub fn exec(c: *Cpu, ctx: anytype) void {
         .absoluteX => addressing.absolute(c, ctx, .x),
         .absoluteY => addressing.absolute(c, ctx, .y),
         .indirect => addressing.indirect(c, ctx),
-
-        else => @panic("boom"),
+        .indirectX => addressing.indirectIndexed(c, ctx, .x),
+        .indirectY => addressing.indirectIndexed(c, ctx, .y),
+        .relative => addressing.relative(c, ctx),
     };
 
     // execution
@@ -77,10 +78,30 @@ pub fn exec(c: *Cpu, ctx: anytype) void {
         .ldx => c.setRegNZ(.x, ctx.read(addr.?)),
         .ldy => c.setRegNZ(.y, ctx.read(addr.?)),
         .jmp => c.pc = addr.?,
+        .bcc => branch(c, ctx, addr.?, .c, false),
+        .bcs => branch(c, ctx, addr.?, .c, true),
+        .beq => branch(c, ctx, addr.?, .z, true),
+        .bne => branch(c, ctx, addr.?, .z, false),
+        .bpl => branch(c, ctx, addr.?, .n, false),
+        .bmi => branch(c, ctx, addr.?, .n, true),
+        .bvc => branch(c, ctx, addr.?, .v, false),
+        .bvs => branch(c, ctx, addr.?, .v, true),
         else => @panic("boom"),
     }
 
     ctx.afterInstruction();
+}
+
+// TODO move this somewhere else?
+fn branch(c: *Cpu, ctx: anytype, addr: u16, flag: StatusFlag, set: bool) void {
+    if (c.getStatusFlag(flag) != set) return;
+
+    const base = c.pc;
+    ctx.idle(base);
+    if ((base & 0xff00) != (addr & 0xff00)) {
+        ctx.idle((base & 0xff00) | (addr & 0x00ff));
+    }
+    c.pc = addr;
 }
 
 /// Represents a bus operation.
