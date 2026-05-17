@@ -19,6 +19,8 @@ pub const Mnemonic = enum(u6) {
     cli, sei,
     cld, sed,
     clv,
+    pha, php,
+    pla, plp,
     sta, stx, sty,
     kil,
 };

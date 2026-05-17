@@ -108,6 +108,11 @@
     .{ .op = 0xf8, .mnemonic = .sed, .mode = .implied, .bytes = 1 },
     .{ .op = 0xb8, .mnemonic = .clv, .mode = .implied, .bytes = 1 },
 
+    .{ .op = 0x48, .mnemonic = .pha, .mode = .implied, .bytes = 1 },
+    .{ .op = 0x08, .mnemonic = .php, .mode = .implied, .bytes = 1 },
+    .{ .op = 0x68, .mnemonic = .pla, .mode = .implied, .bytes = 1 },
+    .{ .op = 0x28, .mnemonic = .plp, .mode = .implied, .bytes = 1 },
+
     .{ .op = 0x85, .mnemonic = .sta, .mode = .zeroPage, .bytes = 2 },
     .{ .op = 0x86, .mnemonic = .stx, .mode = .zeroPage, .bytes = 2 },
     .{ .op = 0x84, .mnemonic = .sty, .mode = .zeroPage, .bytes = 2 },

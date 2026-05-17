@@ -143,6 +143,10 @@ test "instructions execution" {
         .{ .opcode = 0xd8, .setup = .{ .flags = 0x2c }, .want = .{ .flags = 0x24 } }, // cld
         .{ .opcode = 0xf8, .want = .{ .flags = 0x2c } }, // sed
         .{ .opcode = 0xb8, .setup = .{ .flags = 0x64 }, .want = .{ .flags = 0x24 } }, // clv
+        .{ .opcode = 0x48, .setup = .{ .a = 0x42 }, .want = .{ .a = 0x42, .sp = 0xfc, .mem = .{ .addr = 0x01fd, .value = 0x42 } } }, // pha
+        .{ .opcode = 0x08, .want = .{ .sp = 0xfc, .mem = .{ .addr = 0x01fd, .value = 0x34 } } }, // php
+        .{ .opcode = 0x68, .setup = .{ .sp = 0xfc, .read = .{ .addr = 0x01fd, .value = 0x80 } }, .want = .{ .a = 0x80, .sp = 0xfd, .flags = 0xa4 } }, // pla
+        .{ .opcode = 0x28, .setup = .{ .sp = 0xfc, .read = .{ .addr = 0x01fd, .value = 0xc5 } }, .want = .{ .sp = 0xfd, .flags = 0xe5 } }, // plp
 
         .{ .opcode = 0xa9, .operand = &.{0x42}, .want = .{ .a = 0x42 } }, // lda immediate
         .{ .opcode = 0xa2, .operand = &.{0x42}, .want = .{ .x = 0x42 } }, // ldx immediate

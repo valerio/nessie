@@ -316,12 +316,17 @@ const AluOp = enum {
     eor,
 };
 
+const StackTarget = union(enum) { reg: Register8, flags };
+
 const MicroOp = union(enum) {
     dummyReadPc,
     resolveAddr,
     readValue,
 
     writeReg: Register8,
+    pushStack: StackTarget,
+    popStack: struct { peek: bool },
+    loadStack: StackTarget, // after a pop, stores the read result into target
     loadReg: Register8,
     transferReg: struct { src: Register8, dst: Register8 },
     incrementReg: Register8,
@@ -385,6 +390,10 @@ pub const Instruction = struct {
             .cld => impliedOps(.{ .setFlag = .{ .flag = .d, .value = false } }),
             .sed => impliedOps(.{ .setFlag = .{ .flag = .d, .value = true } }),
             .clv => impliedOps(.{ .setFlag = .{ .flag = .v, .value = false } }),
+            .pha => pushOps(.{ .reg = .a }),
+            .php => pushOps(.flags),
+            .pla => pullOps(.{ .reg = .a }),
+            .plp => pullOps(.flags),
             else => panic("unimplemented opcode: {}", .{opcode.mnemonic}),
         } };
     }
@@ -407,6 +416,20 @@ pub const Instruction = struct {
                 .dummyReadPc => busOp = .{ .read = cpu.pc },
                 .readValue => busOp = .{ .read = self.addr },
                 .writeReg => |r| busOp = .{ .write = .{ .addr = self.addr, .value = cpu.readReg(r) } },
+                .pushStack => |target| {
+                    busOp = switch (target) {
+                        .reg => |r| cpu.push(cpu.readReg(r)),
+                        .flags => cpu.push(cpu.flags.toByte() | 0x10),
+                    };
+                },
+                .popStack => |arg| {
+                    if (!arg.peek) cpu.sp +%= 1;
+                    busOp = .{ .read = cpu.stackAddr() };
+                },
+                .loadStack => |target| switch (target) {
+                    .reg => |r| cpu.setRegNZ(r, input.?),
+                    .flags => cpu.flags = Flags.fromByte(input.?),
+                },
                 .loadReg => |r| cpu.setRegNZ(r, input.?),
                 .transferReg => |t| {
                     cpu.setReg(t.dst, cpu.readReg(t.src));
@@ -469,6 +492,14 @@ pub fn jumpOps() []const MicroOp {
     return &.{ .resolveAddr, .jump, .done };
 }
 
+pub fn pushOps(comptime tgt: StackTarget) []const MicroOp {
+    return &.{ .dummyReadPc, .{ .pushStack = tgt }, .done };
+}
+
+pub fn pullOps(comptime tgt: StackTarget) []const MicroOp {
+    return &.{ .dummyReadPc, .{ .popStack = .{ .peek = true } }, .{ .popStack = .{ .peek = false } }, .{ .loadStack = tgt }, .done };
+}
+
 pub const Register8 = enum { a, x, y, sp };
 
 pub const Cpu = struct {
@@ -509,6 +540,16 @@ pub const Cpu = struct {
     pub fn setRegNZ(self: *Cpu, reg: Register8, value: u8) void {
         self.setReg(reg, value);
         self.setNZ(value);
+    }
+
+    pub fn stackAddr(self: *const Cpu) u16 {
+        return 0x0100 | @as(u16, self.sp);
+    }
+
+    pub fn push(self: *Cpu, value: u8) BusOp {
+        const op: BusOp = .{ .write = .{ .addr = self.stackAddr(), .value = value } };
+        self.sp -%= 1;
+        return op;
     }
 
     // TODO: probably refactor/simplify this.
