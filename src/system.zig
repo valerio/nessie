@@ -101,6 +101,7 @@ test "instructions execution" {
         a: u8 = 0,
         x: u8 = 0,
         y: u8 = 0,
+        sp: u8 = 0xfd,
         flags: u8 = 0x24,
         read: ?struct { addr: u16, value: u8 = 0x42 } = null,
         ptr: ?struct { addr: u8, value: u16 } = null,
@@ -110,6 +111,7 @@ test "instructions execution" {
         a: ?u8 = null,
         x: ?u8 = null,
         y: ?u8 = null,
+        sp: ?u8 = null,
         flags: ?u8 = null,
         mem: ?struct { addr: u16, value: u8 } = null,
         pc: ?u16 = null,
@@ -128,6 +130,8 @@ test "instructions execution" {
         .{ .opcode = 0x8a, .setup = .{ .a = 0x42, .x = 0x80 }, .want = .{ .a = 0x80, .flags = 0xa4 } }, // txa
         .{ .opcode = 0xa8, .setup = .{ .a = 0x42, .y = 0x11 }, .want = .{ .y = 0x42 } }, // tay
         .{ .opcode = 0x98, .setup = .{ .a = 0x42, .y = 0x80 }, .want = .{ .a = 0x80, .flags = 0xa4 } }, // tya
+        .{ .opcode = 0xba, .setup = .{ .x = 0x11, .sp = 0x80 }, .want = .{ .x = 0x80, .sp = 0x80, .flags = 0xa4 } }, // tsx
+        .{ .opcode = 0x9a, .setup = .{ .x = 0x42, .sp = 0x80, .flags = 0xa4 }, .want = .{ .x = 0x42, .sp = 0x42, .flags = 0xa4 } }, // txs
         .{ .opcode = 0xe8, .setup = .{ .x = 0xff }, .want = .{ .x = 0x00, .flags = 0x26 } }, // inx wraps
         .{ .opcode = 0xca, .setup = .{ .x = 0x00 }, .want = .{ .x = 0xff, .flags = 0xa4 } }, // dex wraps
         .{ .opcode = 0xc8, .setup = .{ .y = 0x7f }, .want = .{ .y = 0x80, .flags = 0xa4 } }, // iny
@@ -136,6 +140,9 @@ test "instructions execution" {
         .{ .opcode = 0x38, .want = .{ .flags = 0x25 } }, // sec
         .{ .opcode = 0x58, .want = .{ .flags = 0x20 } }, // cli
         .{ .opcode = 0x78, .setup = .{ .flags = 0x20 }, .want = .{ .flags = 0x24 } }, // sei
+        .{ .opcode = 0xd8, .setup = .{ .flags = 0x2c }, .want = .{ .flags = 0x24 } }, // cld
+        .{ .opcode = 0xf8, .want = .{ .flags = 0x2c } }, // sed
+        .{ .opcode = 0xb8, .setup = .{ .flags = 0x64 }, .want = .{ .flags = 0x24 } }, // clv
 
         .{ .opcode = 0xa9, .operand = &.{0x42}, .want = .{ .a = 0x42 } }, // lda immediate
         .{ .opcode = 0xa2, .operand = &.{0x42}, .want = .{ .x = 0x42 } }, // ldx immediate
@@ -244,6 +251,7 @@ test "instructions execution" {
         system.cpu.a = case.setup.a;
         system.cpu.x = case.setup.x;
         system.cpu.y = case.setup.y;
+        system.cpu.sp = case.setup.sp;
         system.cpu.flags = cpu.Flags.fromByte(case.setup.flags);
         system.busWrite(testPc, case.opcode);
 
@@ -265,6 +273,7 @@ test "instructions execution" {
         try testing.expectEqual(case.want.a orelse case.setup.a, system.cpu.a);
         try testing.expectEqual(case.want.x orelse case.setup.x, system.cpu.x);
         try testing.expectEqual(case.want.y orelse case.setup.y, system.cpu.y);
+        try testing.expectEqual(case.want.sp orelse case.setup.sp, system.cpu.sp);
         try testing.expectEqual(case.want.flags orelse case.setup.flags, system.cpu.flags.toByte());
         if (case.want.mem) |mem| {
             try testing.expectEqual(mem.value, system.busRead(mem.addr));

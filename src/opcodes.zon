@@ -92,6 +92,8 @@
     .{ .op = 0x8a, .mnemonic = .txa, .mode = .implied, .bytes = 1 },
     .{ .op = 0xa8, .mnemonic = .tay, .mode = .implied, .bytes = 1 },
     .{ .op = 0x98, .mnemonic = .tya, .mode = .implied, .bytes = 1 },
+    .{ .op = 0xba, .mnemonic = .tsx, .mode = .implied, .bytes = 1 },
+    .{ .op = 0x9a, .mnemonic = .txs, .mode = .implied, .bytes = 1 },
 
     .{ .op = 0xe8, .mnemonic = .inx, .mode = .implied, .bytes = 1 },
     .{ .op = 0xca, .mnemonic = .dex, .mode = .implied, .bytes = 1 },
@@ -102,6 +104,9 @@
     .{ .op = 0x38, .mnemonic = .sec, .mode = .implied, .bytes = 1 },
     .{ .op = 0x58, .mnemonic = .cli, .mode = .implied, .bytes = 1 },
     .{ .op = 0x78, .mnemonic = .sei, .mode = .implied, .bytes = 1 },
+    .{ .op = 0xd8, .mnemonic = .cld, .mode = .implied, .bytes = 1 },
+    .{ .op = 0xf8, .mnemonic = .sed, .mode = .implied, .bytes = 1 },
+    .{ .op = 0xb8, .mnemonic = .clv, .mode = .implied, .bytes = 1 },
 
     .{ .op = 0x85, .mnemonic = .sta, .mode = .zeroPage, .bytes = 2 },
     .{ .op = 0x86, .mnemonic = .stx, .mode = .zeroPage, .bytes = 2 },

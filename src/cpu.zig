@@ -32,6 +32,8 @@ pub const Flags = packed struct(u8) {
     }
 };
 
+const StatusFlag = enum { n, v, b, d, i, z, c };
+
 test "flags" {
     var f = Flags.fromByte(0x0F);
     try testing.expect(f.d);
@@ -245,10 +247,6 @@ const AddrResolver = struct {
     }
 };
 
-pub const Register8 = enum { a, x, y };
-
-const StatusFlag = enum { c, i, z, n, v };
-
 const BranchCondition = struct {
     flag: StatusFlag,
     set: bool,
@@ -374,6 +372,8 @@ pub const Instruction = struct {
             .txa => impliedOps(.{ .transferReg = .{ .src = .x, .dst = .a } }),
             .tay => impliedOps(.{ .transferReg = .{ .src = .a, .dst = .y } }),
             .tya => impliedOps(.{ .transferReg = .{ .src = .y, .dst = .a } }),
+            .tsx => impliedOps(.{ .transferReg = .{ .src = .sp, .dst = .x } }),
+            .txs => impliedOps(.{ .transferReg = .{ .src = .x, .dst = .sp } }),
             .inx => impliedOps(.{ .incrementReg = .x }),
             .dex => impliedOps(.{ .decrementReg = .x }),
             .iny => impliedOps(.{ .incrementReg = .y }),
@@ -382,6 +382,9 @@ pub const Instruction = struct {
             .sec => impliedOps(.{ .setFlag = .{ .flag = .c, .value = true } }),
             .cli => impliedOps(.{ .setFlag = .{ .flag = .i, .value = false } }),
             .sei => impliedOps(.{ .setFlag = .{ .flag = .i, .value = true } }),
+            .cld => impliedOps(.{ .setFlag = .{ .flag = .d, .value = false } }),
+            .sed => impliedOps(.{ .setFlag = .{ .flag = .d, .value = true } }),
+            .clv => impliedOps(.{ .setFlag = .{ .flag = .v, .value = false } }),
             else => panic("unimplemented opcode: {}", .{opcode.mnemonic}),
         } };
     }
@@ -405,7 +408,12 @@ pub const Instruction = struct {
                 .readValue => busOp = .{ .read = self.addr },
                 .writeReg => |r| busOp = .{ .write = .{ .addr = self.addr, .value = cpu.readReg(r) } },
                 .loadReg => |r| cpu.setRegNZ(r, input.?),
-                .transferReg => |t| cpu.setRegNZ(t.dst, cpu.readReg(t.src)),
+                .transferReg => |t| {
+                    cpu.setReg(t.dst, cpu.readReg(t.src));
+                    if (t.dst != .sp) { // txs doesn't affect flags.
+                        cpu.setNZ(cpu.readReg(t.src));
+                    }
+                },
                 .incrementReg => |r| cpu.setRegNZ(r, cpu.readReg(r) +% 1),
                 .decrementReg => |r| cpu.setRegNZ(r, cpu.readReg(r) -% 1),
                 .compareReg => |r| cpu.compare(cpu.readReg(r), input.?),
@@ -461,6 +469,8 @@ pub fn jumpOps() []const MicroOp {
     return &.{ .resolveAddr, .jump, .done };
 }
 
+pub const Register8 = enum { a, x, y, sp };
+
 pub const Cpu = struct {
     a: u8 = 0,
     x: u8 = 0,
@@ -478,6 +488,7 @@ pub const Cpu = struct {
             .a => self.a,
             .x => self.x,
             .y => self.y,
+            .sp => self.sp,
         };
     }
 
@@ -486,6 +497,7 @@ pub const Cpu = struct {
             .a => self.a = value,
             .x => self.x = value,
             .y => self.y = value,
+            .sp => self.sp = value,
         }
     }
 
@@ -504,6 +516,8 @@ pub const Cpu = struct {
         switch (flag) {
             .c => self.flags.c = value,
             .i => self.flags.i = value,
+            .d => self.flags.d = value,
+            .b => self.flags.b = value,
             .z => self.flags.z = value,
             .n => self.flags.n = value,
             .v => self.flags.v = value,
@@ -514,6 +528,8 @@ pub const Cpu = struct {
         return switch (flag) {
             .c => self.flags.c,
             .i => self.flags.i,
+            .d => self.flags.d,
+            .b => self.flags.b,
             .z => self.flags.z,
             .n => self.flags.n,
             .v => self.flags.v,

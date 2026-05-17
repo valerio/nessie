@@ -7,7 +7,7 @@ pub const Mnemonic = enum(u6) {
     lda, ldx, ldy,
     @"and", ora, eor,
     cmp, cpx, cpy,
-    tax, txa, tay, tya,
+    tax, txa, tay, tya, tsx, txs,
     inx, dex,
     iny, dey,
     bcc, bcs,
@@ -17,6 +17,8 @@ pub const Mnemonic = enum(u6) {
     jmp,
     clc, sec,
     cli, sei,
+    cld, sed,
+    clv,
     sta, stx, sty,
     kil,
 };
