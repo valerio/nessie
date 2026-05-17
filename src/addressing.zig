@@ -22,7 +22,7 @@ pub fn zeroPage(cpu: *Cpu, ctx: anytype, comptime r: ?Register8) u16 {
 
     if (r == null) return addr;
 
-    ctx.idle(cpu.pc);
+    ctx.idle();
     return (addr +% cpu.readReg(r.?)) & 0xff;
 }
 
@@ -37,9 +37,9 @@ pub fn absolute(cpu: *Cpu, ctx: anytype, comptime r: ?Register8) u16 {
     if (r == null) return base;
 
     const addr = (base +% cpu.readReg(r.?));
-    // TODO: some instructions will always do this extra read regardless.
+    // TODO: some instructions will always do this dummy read regardless.
     if ((base & 0xff00) != (addr & 0xff00)) {
-        ctx.idle(cpu.pc); // TODO dummy read
+        _ = ctx.read((base & 0xff00) | (addr & 0x00ff));
     }
     return addr;
 }
@@ -69,7 +69,7 @@ pub fn indirectIndexed(cpu: *Cpu, ctx: anytype, comptime r: Register8) u16 {
     var ptr: u8 = undefined;
     switch (r) {
         .x => {
-            ctx.idle(cpu.pc);
+            ctx.idle();
             ptr = operand +% cpu.x;
         },
         .y => ptr = operand,
@@ -84,7 +84,7 @@ pub fn indirectIndexed(cpu: *Cpu, ctx: anytype, comptime r: Register8) u16 {
 
     const addr = base +% cpu.y;
     if ((base & 0xff00) != (addr & 0xff00)) {
-        ctx.idle(cpu.pc); // TODO dummy read
+        _ = ctx.read((base & 0xff00) | (addr & 0x00ff));
     }
     return addr;
 }
