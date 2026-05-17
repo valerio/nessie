@@ -1,5 +1,7 @@
 const std = @import("std");
 const opcodes = @import("opcodes.zig");
+const addressing = @import("addressing.zig");
+
 const testing = std.testing;
 const panic = std.debug.panic;
 
@@ -46,6 +48,29 @@ test "flags" {
     f.b = true;
     const byte = f.toByte();
     try testing.expectEqual(byte, 0x3F);
+}
+
+pub fn exec(comptime Context: type, c: *Cpu, ctx: *Context) void {
+    const opcode = opcodes.table[ctx.read(c.pc)];
+    c.pc +%= 1;
+
+    // addressing
+    // TODO: could optional addressing be done without the unwrapping (.?) below?
+    const addr: ?u16 = switch (opcode.mode) {
+        .implied => null,
+        .immediate => addressing.immediate(c),
+        .zeroPage => addressing.zeroPage(Context, c, ctx),
+        else => @panic("boom"),
+    };
+
+    // execution
+    switch (opcode.mnemonic) {
+        .nop => _ = ctx.read(c.pc),
+        .lda => c.setRegNZ(.a, ctx.read(addr.?)),
+        else => @panic("boom"),
+    }
+
+    ctx.afterInstruction();
 }
 
 /// Represents a bus operation.

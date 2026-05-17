@@ -8,4 +8,5 @@ test {
     _ = @import("system.zig");
     _ = @import("mapper.zig");
     _ = @import("opcodes.zig");
+    _ = @import("addressing.zig");
 }

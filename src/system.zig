@@ -12,6 +12,41 @@ const BusOp = cpu.BusOp;
 
 const internalRamSize = 0x800; // 2KB
 
+/// Context for executing an instruction.
+/// This boils down to allowing mid-instruction side effects to take place.
+/// Side-effects in NES emultation typically need to take place on after each
+/// CPU cycle, typically after a bus read/write.
+///
+/// Some CPU cycles are not used to access the bus, in that case, we use the
+/// `idle` method to represent the fact that a cycle has passed and a "dummy read"
+/// is performed, which can, in some cases, trigger side effects.
+const ExecContext = struct {
+    system: *System,
+
+    const Self = @This();
+
+    pub fn read(self: Self, addr: u16) u8 {
+        // TODO: hooks
+        return self.system.busRead(addr);
+    }
+
+    pub fn write(self: Self, addr: u16, value: u8) void {
+        // TODO: hooks
+        self.system.busWrite(addr, value);
+    }
+
+    /// trigger an idle cycle, this means a "dummy read"
+    /// will occurr at the passed address.
+    pub fn idle(self: Self, addr: u16) void {
+        // TODO hooks
+        _ = self.system.busRead(addr);
+    }
+
+    pub fn afterInstruction(self: *Self) void {
+        _ = self;
+    }
+};
+
 pub const System = struct {
     cpu: Cpu,
     internalRam: [internalRamSize]u8,
@@ -41,6 +76,11 @@ pub const System = struct {
                 .idle => input = null,
             }
         }
+    }
+
+    pub fn tick2(self: *System) void {
+        var ctx = ExecContext{ .system = self };
+        cpu.exec(ExecContext, &self.cpu, &ctx);
     }
 
     pub fn busRead(self: *System, addr: u16) u8 {
@@ -96,7 +136,44 @@ test "system executes LDA immediate" {
     try testing.expectEqual(testPc + 2, system.cpu.pc);
 }
 
-test "instructions execution" {
+test "instruction execution (context)" {
+    const testPc: u16 = 0x0200;
+
+    const testCases = [_]struct {
+        opcode: u8,
+        operand: []const u8 = &.{},
+        read: ?struct { addr: u16, value: u8 } = null,
+        wantA: u8 = 0,
+        wantFlags: u8 = 0x24,
+    }{
+        .{ .opcode = 0xea }, // nop
+        .{ .opcode = 0xa9, .operand = &.{0x80}, .wantA = 0x80, .wantFlags = 0xa4 }, // lda immediate
+        .{ .opcode = 0xa5, .operand = &.{0x80}, .read = .{ .addr = 0x0080, .value = 0x00 }, .wantFlags = 0x26 }, // lda zero page
+    };
+
+    for (testCases, 0..) |case, caseIndex| {
+        errdefer std.debug.print("failed spike instruction case {d}: opcode 0x{x:0>2}\n", .{ caseIndex, case.opcode });
+
+        const romdata = [_]u8{0} ** 0x4000;
+        var nrom = mappers.Nrom.init(romdata[0..]);
+        var system = System.init(nrom.mapper());
+
+        system.cpu.pc = testPc;
+        system.busWrite(testPc, case.opcode);
+        for (case.operand, 0..) |byte, index| {
+            system.busWrite(testPc + @as(u16, @intCast(1 + index)), byte);
+        }
+        if (case.read) |read| system.busWrite(read.addr, read.value);
+
+        system.tick2();
+
+        try testing.expectEqual(case.wantA, system.cpu.a);
+        try testing.expectEqual(case.wantFlags, system.cpu.flags.toByte());
+        try testing.expectEqual(testPc + @as(u16, @intCast(1 + case.operand.len)), system.cpu.pc);
+    }
+}
+
+test "instructions execution (fsm)" {
     const Setup = struct {
         a: u8 = 0,
         x: u8 = 0,
