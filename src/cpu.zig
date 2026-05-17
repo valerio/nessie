@@ -83,6 +83,9 @@ pub fn exec(c: *Cpu, ctx: anytype) void {
         .@"and" => c.setRegNZ(.a, c.aluA(.@"and", ctx.read(addr.?))),
         .ora => c.setRegNZ(.a, c.aluA(.ora, ctx.read(addr.?))),
         .eor => c.setRegNZ(.a, c.aluA(.eor, ctx.read(addr.?))),
+        .adc => adc(c, ctx, addr.?),
+        .sbc => sbc(c, ctx, addr.?),
+        .bit => bit(c, ctx, addr.?),
         .cmp => c.compare(c.a, ctx.read(addr.?)),
         .cpx => c.compare(c.x, ctx.read(addr.?)),
         .cpy => c.compare(c.y, ctx.read(addr.?)),
@@ -122,7 +125,44 @@ pub fn exec(c: *Cpu, ctx: anytype) void {
     ctx.afterInstruction();
 }
 
-// TODO move this somewhere else?
+// Instructions
+// TODO: move somewhere else.
+
+fn overflowBit(acc: u8, operand: u8, sum: u8) bool {
+    return (~(acc ^ operand) & (acc ^ sum) & 0x80) != 0;
+}
+
+fn adc(c: *Cpu, ctx: anytype, addr: u16) void {
+    const value = ctx.read(addr);
+    const a = c.a;
+    const carry: u16 = if (c.flags.c) 1 else 0;
+    const sum: u16 = @as(u16, a) +% value +% @as(u16, carry);
+
+    c.flags.c = sum > 0xff;
+    c.flags.v = overflowBit(a, value, @truncate(sum));
+    c.a = @truncate(sum);
+    c.setNZ(c.a);
+}
+
+fn sbc(c: *Cpu, ctx: anytype, addr: u16) void {
+    const value = ctx.read(addr) ^ 0xff;
+    const a = c.a;
+    const carry: u16 = if (c.flags.c) 1 else 0;
+    const sum: u16 = @as(u16, a) +% value +% @as(u16, carry);
+
+    c.flags.c = sum > 0xff;
+    c.flags.v = overflowBit(a, value, @truncate(sum));
+    c.a = @truncate(sum);
+    c.setNZ(c.a);
+}
+
+fn bit(c: *Cpu, ctx: anytype, addr: u16) void {
+    const value = ctx.read(addr);
+    c.flags.z = c.a & value == 0;
+    c.flags.n = (value >> 7) > 0;
+    c.flags.v = (value >> 6) > 0;
+}
+
 fn branch(c: *Cpu, ctx: anytype, addr: u16, flag: StatusFlag, set: bool) void {
     if (c.getStatusFlag(flag) != set) return;
 

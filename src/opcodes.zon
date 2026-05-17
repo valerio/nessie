@@ -59,6 +59,27 @@
     .{ .op = 0x41, .mnemonic = .eor, .mode = .indirectX, .bytes = 2 },
     .{ .op = 0x51, .mnemonic = .eor, .mode = .indirectY, .bytes = 2 },
 
+    .{ .op = 0x69, .mnemonic = .adc, .mode = .immediate, .bytes = 2 },
+    .{ .op = 0x65, .mnemonic = .adc, .mode = .zeroPage, .bytes = 2 },
+    .{ .op = 0x75, .mnemonic = .adc, .mode = .zeroPageX, .bytes = 2 },
+    .{ .op = 0x6d, .mnemonic = .adc, .mode = .absolute, .bytes = 3 },
+    .{ .op = 0x7d, .mnemonic = .adc, .mode = .absoluteX, .bytes = 3 },
+    .{ .op = 0x79, .mnemonic = .adc, .mode = .absoluteY, .bytes = 3 },
+    .{ .op = 0x61, .mnemonic = .adc, .mode = .indirectX, .bytes = 2 },
+    .{ .op = 0x71, .mnemonic = .adc, .mode = .indirectY, .bytes = 2 },
+
+    .{ .op = 0xe9, .mnemonic = .sbc, .mode = .immediate, .bytes = 2 },
+    .{ .op = 0xe5, .mnemonic = .sbc, .mode = .zeroPage, .bytes = 2 },
+    .{ .op = 0xf5, .mnemonic = .sbc, .mode = .zeroPageX, .bytes = 2 },
+    .{ .op = 0xed, .mnemonic = .sbc, .mode = .absolute, .bytes = 3 },
+    .{ .op = 0xfd, .mnemonic = .sbc, .mode = .absoluteX, .bytes = 3 },
+    .{ .op = 0xf9, .mnemonic = .sbc, .mode = .absoluteY, .bytes = 3 },
+    .{ .op = 0xe1, .mnemonic = .sbc, .mode = .indirectX, .bytes = 2 },
+    .{ .op = 0xf1, .mnemonic = .sbc, .mode = .indirectY, .bytes = 2 },
+
+    .{ .op = 0x24, .mnemonic = .bit, .mode = .zeroPage, .bytes = 2 },
+    .{ .op = 0x2c, .mnemonic = .bit, .mode = .absolute, .bytes = 3 },
+
     .{ .op = 0xc9, .mnemonic = .cmp, .mode = .immediate, .bytes = 2 },
     .{ .op = 0xc5, .mnemonic = .cmp, .mode = .zeroPage, .bytes = 2 },
     .{ .op = 0xd5, .mnemonic = .cmp, .mode = .zeroPageX, .bytes = 2 },
