@@ -15,7 +15,7 @@ pub fn zeroPage(cpu: *Cpu, ctx: anytype, comptime r: ?Register8) u16 {
     if (r == null) return addr;
 
     ctx.idle(cpu.pc);
-    return (addr + cpu.readReg(r.?)) & 0xff;
+    return (addr +% cpu.readReg(r.?)) & 0xff;
 }
 
 pub fn absolute(cpu: *Cpu, ctx: anytype, comptime r: ?Register8) u16 {
@@ -25,7 +25,7 @@ pub fn absolute(cpu: *Cpu, ctx: anytype, comptime r: ?Register8) u16 {
     const hi = ctx.read(cpu.pc);
     cpu.pc +%= 1;
 
-    const base: u16 = hi << 8 | lo;
+    const base: u16 = @as(u16, hi) << 8 | lo;
     if (r == null) return base;
 
     const addr = (base +% cpu.readReg(r.?));
@@ -47,7 +47,7 @@ pub fn indirect(cpu: *Cpu, ctx: anytype) u16 {
     const addrLo = ctx.read(ptr);
     cpu.pc +%= 1;
 
-    const ptrHi = if ((ptr & 0x00ff) == 0x00ff) ptr & 0x00ff else ptr + 1;
+    const ptrHi = if ((ptr & 0x00ff) == 0x00ff) ptr & 0xff00 else ptr + 1;
     const addrHi = ctx.read(ptrHi);
 
     cpu.pc +%= 1;

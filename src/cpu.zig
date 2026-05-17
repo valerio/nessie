@@ -62,6 +62,9 @@ pub fn exec(c: *Cpu, ctx: anytype) void {
         .zeroPage => addressing.zeroPage(c, ctx, null),
         .zeroPageX => addressing.zeroPage(c, ctx, .x),
         .zeroPageY => addressing.zeroPage(c, ctx, .y),
+        .absolute => addressing.absolute(c, ctx, null),
+        .absoluteX => addressing.absolute(c, ctx, .x),
+        .absoluteY => addressing.absolute(c, ctx, .y),
         .indirect => addressing.indirect(c, ctx),
 
         else => @panic("boom"),
@@ -71,6 +74,9 @@ pub fn exec(c: *Cpu, ctx: anytype) void {
     switch (opcode.mnemonic) {
         .nop => _ = ctx.read(c.pc),
         .lda => c.setRegNZ(.a, ctx.read(addr.?)),
+        .ldx => c.setRegNZ(.x, ctx.read(addr.?)),
+        .ldy => c.setRegNZ(.y, ctx.read(addr.?)),
+        .jmp => c.pc = addr.?,
         else => @panic("boom"),
     }
 

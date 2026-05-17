@@ -143,12 +143,28 @@ test "instruction execution (context)" {
         opcode: u8,
         operand: []const u8 = &.{},
         read: ?struct { addr: u16, value: u8 } = null,
+        ptr: ?struct { addr: u16, value: u16 } = null,
+        setupX: u8 = 0,
+        setupY: u8 = 0,
         wantA: u8 = 0,
+        wantX: ?u8 = null,
+        wantY: ?u8 = null,
         wantFlags: u8 = 0x24,
+        wantPc: ?u16 = null,
     }{
         .{ .opcode = 0xea }, // nop
         .{ .opcode = 0xa9, .operand = &.{0x80}, .wantA = 0x80, .wantFlags = 0xa4 }, // lda immediate
         .{ .opcode = 0xa5, .operand = &.{0x80}, .read = .{ .addr = 0x0080, .value = 0x00 }, .wantFlags = 0x26 }, // lda zero page
+        .{ .opcode = 0xb5, .operand = &.{0x80}, .setupX = 0x04, .read = .{ .addr = 0x0084, .value = 0x42 }, .wantA = 0x42 }, // lda zero page,x
+        .{ .opcode = 0xb5, .operand = &.{0xff}, .setupX = 0x01, .read = .{ .addr = 0x0000, .value = 0x43 }, .wantA = 0x43 }, // lda zero page,x wraps
+        .{ .opcode = 0xb6, .operand = &.{0x80}, .setupY = 0x04, .read = .{ .addr = 0x0084, .value = 0x44 }, .wantX = 0x44 }, // ldx zero page,y
+        .{ .opcode = 0xad, .operand = &.{ 0x34, 0x12 }, .read = .{ .addr = 0x1234, .value = 0x45 }, .wantA = 0x45 }, // lda absolute
+        .{ .opcode = 0xbd, .operand = &.{ 0x30, 0x12 }, .setupX = 0x04, .read = .{ .addr = 0x1234, .value = 0x46 }, .wantA = 0x46 }, // lda absolute,x
+        .{ .opcode = 0xb9, .operand = &.{ 0xff, 0x12 }, .setupY = 0x01, .read = .{ .addr = 0x1300, .value = 0x47 }, .wantA = 0x47 }, // lda absolute,y page-cross
+        .{ .opcode = 0xbc, .operand = &.{ 0x30, 0x12 }, .setupX = 0x04, .read = .{ .addr = 0x1234, .value = 0x48 }, .wantY = 0x48 }, // ldy absolute,x
+        .{ .opcode = 0x4c, .operand = &.{ 0x34, 0x12 }, .wantPc = 0x1234 }, // jmp absolute
+        .{ .opcode = 0x6c, .operand = &.{ 0x34, 0x12 }, .ptr = .{ .addr = 0x1234, .value = 0xabcd }, .wantPc = 0xabcd }, // jmp indirect
+        .{ .opcode = 0x6c, .operand = &.{ 0xff, 0x13 }, .ptr = .{ .addr = 0x13ff, .value = 0xabcd }, .wantPc = 0xabcd }, // jmp indirect wraps pointer high byte
     };
 
     for (testCases, 0..) |case, caseIndex| {
@@ -159,17 +175,25 @@ test "instruction execution (context)" {
         var system = System.init(nrom.mapper());
 
         system.cpu.pc = testPc;
+        system.cpu.x = case.setupX;
+        system.cpu.y = case.setupY;
         system.busWrite(testPc, case.opcode);
         for (case.operand, 0..) |byte, index| {
             system.busWrite(testPc + @as(u16, @intCast(1 + index)), byte);
+        }
+        if (case.ptr) |ptr| {
+            system.busWrite(ptr.addr, @truncate(ptr.value));
+            system.busWrite((ptr.addr & 0xff00) | ((ptr.addr +% 1) & 0x00ff), @truncate(ptr.value >> 8));
         }
         if (case.read) |read| system.busWrite(read.addr, read.value);
 
         system.tick2();
 
         try testing.expectEqual(case.wantA, system.cpu.a);
+        try testing.expectEqual(case.wantX orelse case.setupX, system.cpu.x);
+        try testing.expectEqual(case.wantY orelse case.setupY, system.cpu.y);
         try testing.expectEqual(case.wantFlags, system.cpu.flags.toByte());
-        try testing.expectEqual(testPc + @as(u16, @intCast(1 + case.operand.len)), system.cpu.pc);
+        try testing.expectEqual(case.wantPc orelse testPc + @as(u16, @intCast(1 + case.operand.len)), system.cpu.pc);
     }
 }
 
