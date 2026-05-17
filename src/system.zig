@@ -80,7 +80,7 @@ pub const System = struct {
 
     pub fn tick2(self: *System) void {
         var ctx = ExecContext{ .system = self };
-        cpu.exec(ExecContext, &self.cpu, &ctx);
+        cpu.exec(&self.cpu, &ctx);
     }
 
     pub fn busRead(self: *System, addr: u16) u8 {

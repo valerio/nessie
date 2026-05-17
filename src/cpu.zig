@@ -50,7 +50,7 @@ test "flags" {
     try testing.expectEqual(byte, 0x3F);
 }
 
-pub fn exec(comptime Context: type, c: *Cpu, ctx: *Context) void {
+pub fn exec(c: *Cpu, ctx: anytype) void {
     const opcode = opcodes.table[ctx.read(c.pc)];
     c.pc +%= 1;
 
@@ -59,7 +59,11 @@ pub fn exec(comptime Context: type, c: *Cpu, ctx: *Context) void {
     const addr: ?u16 = switch (opcode.mode) {
         .implied => null,
         .immediate => addressing.immediate(c),
-        .zeroPage => addressing.zeroPage(Context, c, ctx),
+        .zeroPage => addressing.zeroPage(c, ctx, null),
+        .zeroPageX => addressing.zeroPage(c, ctx, .x),
+        .zeroPageY => addressing.zeroPage(c, ctx, .y),
+        .indirect => addressing.indirect(c, ctx),
+
         else => @panic("boom"),
     };
 
