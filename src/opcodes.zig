@@ -1,46 +1,29 @@
 const std = @import("std");
+
 const testing = std.testing;
 
 // zig fmt: off
 pub const Mnemonic = enum(u6) {
-    nop,
-    lda, ldx, ldy,
-    @"and", ora, eor,
-    adc, sbc,
-    bit,
-    cmp, cpx, cpy,
-    tax, txa, tay, tya, tsx, txs,
-    inx, dex,
-    iny, dey,
-    bcc, bcs,
-    beq, bne,
-    bpl, bmi,
-    bvc, bvs,
-    jmp,
-    clc, sec,
-    cli, sei,
-    cld, sed,
-    clv,
-    pha, php,
-    pla, plp,
-    sta, stx, sty,
-    kil,
+    lda, sta, ldx, stx, ldy, sty,            // access
+    tax, txa, tay, tya,                      // transfer
+    adc, sbc, inc, dec, inx, dex, iny, dey,  // arithmetic
+    asl, lsr, rol, ror,                      // shift
+    @"and", ora, eor, bit,                   // bitwise
+    cmp, cpx, cpy,                           // compare
+    bcc, bcs, beq, bne, bpl, bmi, bvc, bvs,  // branch
+    jmp, jsr, rts, brk, rti,                 // jump
+    pha, pla, php, plp, txs, tsx,            // stack
+    clc, sec, cli, sei, cld, sed, clv,       // flags
+    nop, kil,                                // other
 };
 
 pub const AddrMode = enum(u4) {
-    implied,
-    immediate,
-    zeroPage,
-    zeroPageX,
-    zeroPageY,
-    absolute,
-    absoluteX,
-    absoluteY,
-    indirect,
-    indirectX,
-    indirectY,
-    relative,
+    implied, immediate, relative,
+    zeroPage, zeroPageX, zeroPageY,
+    absolute, absoluteX, absoluteY,
+    indirect, indirectX, indirectY,
 };
+// zig fmt: on
 
 /// A parsed NES opcode specification
 pub const OpcodeSpec = struct {

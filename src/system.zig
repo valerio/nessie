@@ -1,45 +1,12 @@
 const std = @import("std");
 const mappers = @import("mapper.zig");
 const cpu = @import("cpu.zig");
-const Mapper = mappers.Mapper;
 
+const Mapper = mappers.Mapper;
+const Cpu = cpu.Cpu;
 const testing = std.testing;
 
-const Cpu = cpu.Cpu;
-
 const internalRamSize = 0x800; // 2KB
-
-/// Context for executing an instruction.
-/// This boils down to allowing mid-instruction side effects to take place.
-/// Side-effects in NES emultation typically need to take place on after each
-/// CPU cycle, typically after a bus read/write.
-///
-/// Some CPU cycles are internal and do not access a meaningful bus address. Use
-/// `idle` for those cycles; use `read` for dummy reads that hit a real address.
-const ExecContext = struct {
-    system: *System,
-
-    const Self = @This();
-
-    pub fn read(self: Self, addr: u16) u8 {
-        // TODO: hooks
-        return self.system.busRead(addr);
-    }
-
-    pub fn write(self: Self, addr: u16, value: u8) void {
-        // TODO: hooks
-        self.system.busWrite(addr, value);
-    }
-
-    pub fn idle(self: Self) void {
-        // TODO hooks
-        _ = self;
-    }
-
-    pub fn afterInstruction(self: *Self) void {
-        _ = self;
-    }
-};
 
 pub const System = struct {
     cpu: Cpu,
@@ -48,7 +15,7 @@ pub const System = struct {
 
     pub fn init(mapper: Mapper) System {
         return .{
-            .cpu = Cpu.init(),
+            .cpu = .{},
             .internalRam = [_]u8{0} ** (internalRamSize),
             .mapper = mapper,
         };
@@ -57,11 +24,33 @@ pub const System = struct {
     }
 
     pub fn tick(self: *System) void {
-        var ctx = ExecContext{ .system = self };
-        cpu.exec(&self.cpu, &ctx);
+        cpu.exec(self);
     }
 
-    pub fn busRead(self: *System, addr: u16) u8 {
+    /// Bus read plus one CPU-cycle hook point.
+    pub fn cycleRead(s: *System, addr: u16) u8 {
+        const value = s.busRead(addr);
+        cycleTick(s);
+        return value;
+    }
+
+    /// Bus write plus one CPU-cycle hook point.
+    pub fn cycleWrite(s: *System, addr: u16, value: u8) void {
+        s.busWrite(addr, value);
+        cycleTick(s);
+    }
+
+    /// CPU cycle with no meaningful bus access.
+    pub fn cycleIdle(s: *System) void {
+        cycleTick(s);
+    }
+
+    fn cycleTick(s: *System) void {
+        // TODO: PPU/APU/DMA hooks.
+        _ = s;
+    }
+
+    fn busRead(self: *System, addr: u16) u8 {
         switch (addr) {
             // $0000-$1fff: 2KB internal RAM mirrored 4 times (every $0800)
             0x0000...0x1fff => return self.internalRam[addr & 0x07ff],
@@ -85,7 +74,7 @@ pub const System = struct {
         }
     }
 
-    pub fn busWrite(self: *System, addr: u16, value: u8) void {
+    fn busWrite(self: *System, addr: u16, value: u8) void {
         switch (addr) {
             // same mappings as above
             0x0000...0x1fff => self.internalRam[addr & 0x07ff] = value,
@@ -114,7 +103,7 @@ test "system executes LDA immediate" {
     try testing.expectEqual(testPc + 2, system.cpu.pc);
 }
 
-test "instruction execution (context)" {
+test "instruction execution" {
     const Setup = struct {
         a: u8 = 0,
         x: u8 = 0,
