@@ -143,7 +143,7 @@ pub const Ppu = struct {
         switch (addr) {
             0x2000 => {
                 self.ctrl = @bitCast(value);
-                self.loopyT = (self.loopyT & ~loopyNt) | (@as(u16, value & 0b111) << 10);
+                self.loopyT = (self.loopyT & ~loopyNt) | (@as(u16, value & 0b11) << 10);
             },
             0x2001 => self.mask = @bitCast(value),
             0x2003 => self.oamAddr = value,
@@ -347,7 +347,7 @@ fn copyVerticalScroll(v: u16, t: u16) u16 {
 }
 
 fn normalizePalette(idx: u16) usize {
-    var i: usize = @intCast(idx & 0b10000);
+    var i: usize = @intCast(idx & 0x1F);
     if ((i & 0b10011) == 0b10000) i -= 0b10000;
     return i;
 }
