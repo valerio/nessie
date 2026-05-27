@@ -2,6 +2,7 @@
 const std = @import("std");
 
 pub const cpu = @import("cpu.zig");
+pub const System = @import("system.zig").System;
 
 test {
     _ = @import("cpu.zig");
