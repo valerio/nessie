@@ -209,7 +209,7 @@ pub const Ppu = struct {
         const p1 = (self.bgPatternShiftHi >> bit) & 1;
         const bgPixel = (p1 << 1) | p0;
 
-        var paletteIdx: usize = undefined;
+        var paletteIdx: usize = 0;
         if (bgPixel != 0) {
             const a0 = (self.bgPaletteShiftLo >> bit) & 1;
             const a1 = (self.bgPaletteShiftHi >> bit) & 1;
