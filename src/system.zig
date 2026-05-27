@@ -1,101 +1,138 @@
 const std = @import("std");
-const mappers = @import("mapper.zig");
 const cpu = @import("cpu.zig");
+const mapper = @import("mapper.zig");
+const cart = @import("cart.zig");
+const ppu = @import("ppu.zig");
+const opcodes = @import("opcodes.zig");
+const addressing = @import("addressing.zig");
+const instructions = @import("instructions.zig");
 
-const Mapper = mappers.Mapper;
-const Cpu = cpu.Cpu;
 const testing = std.testing;
+const Cpu = cpu.Cpu;
+const Mapper = mapper.Mapper;
+const Cartridge = cart.Cartridge;
+const Ppu = ppu.Ppu;
 
 const internalRamSize = 0x800; // 2KB
 
 pub const System = struct {
-    cpu: Cpu,
-    internalRam: [internalRamSize]u8,
+    cpu: Cpu = .{},
+    internalRam: [internalRamSize]u8 = [_]u8{0} ** internalRamSize,
+    ppu: Ppu = .{},
     mapper: Mapper,
+    cartridge: Cartridge = .{},
+    allocator: ?std.mem.Allocator = null,
+    frameCounter: u64 = 0,
+    pendingNmi: bool = false,
+    pendingIrq: bool = false,
 
-    pub fn init(mapper: Mapper) System {
-        return .{
-            .cpu = .{},
-            .internalRam = [_]u8{0} ** (internalRamSize),
-            .mapper = mapper,
+    pub fn initFromCart(allocator: std.mem.Allocator, c: Cartridge) System {
+        var sys: System = .{
+            .mapper = mapper.fromCart(&c),
+            .cartridge = c,
+            .allocator = allocator,
         };
-        // TODO: set PC based on 0xfffc and 0xfffd
-        // self.cpu.pc = self.busRead(0xfffc);
+        const lo = sys.busRead(0xfffc);
+        const hi = sys.busRead(0xfffd);
+        sys.cpu.pc = @as(u16, hi) << 8 | lo;
+        return sys;
     }
 
-    pub fn tick(self: *System) void {
-        cpu.exec(self);
+    pub fn initFromFile(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !System {
+        const c = try cart.loadFile(allocator, io, path);
+        return initFromCart(allocator, c);
     }
 
-    /// Bus read plus one CPU-cycle hook point.
+    pub fn deinit(self: *System, allocator: std.mem.Allocator) void {
+        cart.deinit(&self.cartridge, allocator);
+        self.* = undefined;
+    }
+
+    pub fn runFrame(self: *System) void {
+        const startFrame = self.frameCounter;
+        // TODO: should bubble frame events up from ppu so we can
+        // stop at the right moment otherwise this is too coarse.
+        for (0..40000) |_| {
+            if (self.frameCounter != startFrame) break;
+            self.runInstruction();
+        }
+    }
+
+    fn runInstruction(self: *System) void {
+        if (self.cpu.halted) {
+            tick(self);
+            return;
+        }
+
+        if (self.pendingNmi) {
+            self.pendingNmi = false;
+            instructions.interrupt(self, .nmi);
+            return;
+        }
+
+        if (!self.cpu.flags.i and self.pendingIrq) {
+            self.pendingIrq = false;
+            instructions.interrupt(self, .irq);
+            return;
+        }
+
+        const op = opcodes.table[self.cycleRead(self.cpu.pc)];
+        self.cpu.pc +%= 1;
+
+        instructions.exec(self, op);
+    }
+
     pub fn cycleRead(s: *System, addr: u16) u8 {
         const value = s.busRead(addr);
-        cycleTick(s);
+        tick(s);
         return value;
     }
 
-    /// Bus write plus one CPU-cycle hook point.
     pub fn cycleWrite(s: *System, addr: u16, value: u8) void {
         s.busWrite(addr, value);
-        cycleTick(s);
+        tick(s);
     }
 
-    /// CPU cycle with no meaningful bus access.
     pub fn cycleIdle(s: *System) void {
-        cycleTick(s);
+        tick(s);
     }
 
-    fn cycleTick(s: *System) void {
-        // TODO: PPU/APU/DMA hooks.
-        _ = s;
+    fn tick(s: *System) void {
+        // TODO tick all components
+        const result = s.ppu.tick(&s.mapper, s.cartridge.mirrorMode);
+        if (result.nmi) s.pendingNmi = true;
+        if (result.frameDone) s.frameCounter += 1;
     }
 
     fn busRead(self: *System, addr: u16) u8 {
         switch (addr) {
-            // $0000-$1fff: 2KB internal RAM mirrored 4 times (every $0800)
             0x0000...0x1fff => return self.internalRam[addr & 0x07ff],
-
-            // $2000-$3fff: PPU registers, mirrored every 8 bytes
-            // $4000-$4013: APU and I/O registers
-            // $4014: OAM DMA register
-            // $4015: APU status register
-            // $4016-$4017: controller and APU frame counter registers
-            // $4018-$401f: APU/I/O functionality
-
-            // $4020-$5fff: cart expansion area
-            // $6000-$7fff: cart PRG-RAM
-            // $8000-$ffff: cart PRG-ROM
-            0x4020...0xffff => return self.mapper.read(addr),
-
-            else => {
-                std.debug.print("unimplemented read at addr: {x}", .{addr});
-                return 0;
-            },
+            0x2000...0x3fff => return self.ppu.readRegister(&self.mapper, self.cartridge.mirrorMode, addr),
+            0x4000...0x4017 => return 0,
+            0x6000...0xffff => return self.mapper.read(addr),
+            else => return 0,
         }
     }
 
     fn busWrite(self: *System, addr: u16, value: u8) void {
         switch (addr) {
-            // same mappings as above
             0x0000...0x1fff => self.internalRam[addr & 0x07ff] = value,
-            0x4020...0xffff => self.mapper.write(addr, value),
-            else => {
-                std.debug.print("unimplemented write at addr: {x}", .{addr});
-            },
+            0x2000...0x3fff => self.ppu.writeRegister(&self.mapper, self.cartridge.mirrorMode, addr, value),
+            0x4000...0x4017 => {},
+            0x6000...0xffff => self.mapper.write(addr, value),
+            else => {},
         }
     }
 };
 
 test "system executes LDA immediate" {
-    const romdata = [_]u8{0} ** 0x4000;
-    var nrom = mappers.Nrom.init(romdata[0..]);
-    var system = System.init(nrom.mapper());
+    var system: System = .{ .mapper = mapper.fromData(&[_]u8{0} ** 0x4000) };
     const testPc: u16 = 0x0200;
 
     system.cpu.pc = testPc;
     system.busWrite(testPc, 0xa9);
     system.busWrite(testPc + 1, 0x80);
-    system.tick();
+    system.runInstruction();
 
     try testing.expectEqual(0x80, system.cpu.a);
     try testing.expect(!system.cpu.flags.z);
@@ -278,10 +315,7 @@ test "instruction execution" {
 
     for (testCases, 0..) |case, caseIndex| {
         errdefer std.debug.print("failed instruction case {d}: opcode 0x{x:0>2}\n", .{ caseIndex, case.opcode });
-
-        const romdata = [_]u8{0} ** 0x4000;
-        var nrom = mappers.Nrom.init(romdata[0..]);
-        var system = System.init(nrom.mapper());
+        var system: System = .{ .mapper = mapper.fromData(&[_]u8{0} ** 0x4000) };
 
         system.cpu.pc = testPc;
         system.cpu.a = case.setup.a;
@@ -304,7 +338,7 @@ test "instruction execution" {
         }
         if (case.setup.read) |read| system.busWrite(read.addr, read.value);
 
-        system.tick();
+        system.runInstruction();
 
         try testing.expectEqual(case.want.a orelse case.setup.a, system.cpu.a);
         try testing.expectEqual(case.want.x orelse case.setup.x, system.cpu.x);
@@ -320,9 +354,7 @@ test "instruction execution" {
 }
 
 test "system writes/reads internal ram" {
-    const romdata = [_]u8{0} ** 0x4000;
-    var nrom = mappers.Nrom.init(romdata[0..]);
-    var system = System.init(nrom.mapper());
+    var system: System = .{ .mapper = mapper.fromData(&[_]u8{0} ** 0x4000) };
 
     system.busWrite(0xff, 0xff);
     try testing.expectEqual(0, system.cpu.pc);
@@ -341,12 +373,10 @@ test "system mirrors internal ram" {
     };
 
     for (cases) |case| {
-        const romdata = [_]u8{0} ** 0x4000;
-        var nrom = mappers.Nrom.init(romdata[0..]);
-        var sys = System.init(nrom.mapper());
-        sys.busWrite(case.addr, case.value);
+        var system: System = .{ .mapper = mapper.fromData(&[_]u8{0} ** 0x4000) };
+        system.busWrite(case.addr, case.value);
         for ([_]u16{ 0, 0x800, 0x1000, 0x1800 }) |mirror| {
-            try testing.expectEqual(case.value, sys.busRead(mirror + case.addr));
+            try testing.expectEqual(case.value, system.busRead(mirror + case.addr));
         }
     }
 }

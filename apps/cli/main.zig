@@ -16,8 +16,8 @@ pub fn main(init: std.process.Init) !void {
         frames = try std.fmt.parseInt(u64, args[2], 10);
     }
 
-    var sys = try nessie.System.createFromFile(allocator, init.io, path);
-    defer sys.deinit();
+    var sys = try nessie.System.initFromFile(allocator, init.io, path);
+    defer sys.deinit(allocator);
     std.debug.print(
         "loaded {s}: pc ${x:0>4}, mapper {d}\n",
         .{ path, sys.cpu.pc, sys.cartridge.mapper },

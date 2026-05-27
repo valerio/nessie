@@ -153,4 +153,46 @@ pub fn build(b: *std.Build) void {
     //
     // Lastly, the Zig build system is relatively simple and self-contained,
     // and reading its source code will allow you to master it.
+
+    try buildRaylib(b, mod, target, optimize);
+}
+
+fn buildRaylib(
+    b: *std.Build,
+    mod: *std.Build.Module,
+    target: std.Build.ResolvedTarget,
+    optimize: std.builtin.OptimizeMode,
+) !void {
+    const raylib_zig = b.dependency("raylib_zig", .{
+        .target = target,
+        .optimize = optimize,
+    });
+
+    const rl_exe = b.addExecutable(.{
+        .name = "nessie-rl",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("apps/raylib/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "nessie", .module = mod },
+                .{ .name = "raylib", .module = raylib_zig.module("raylib") },
+                .{ .name = "raygui", .module = raylib_zig.module("raygui") },
+            },
+        }),
+    });
+
+    rl_exe.root_module.linkLibrary(raylib_zig.artifact("raylib"));
+    const install_rl = b.addInstallArtifact(rl_exe, .{});
+
+    const rl_build_step = b.step("raylib", "Build raylib app");
+    rl_build_step.dependOn(&rl_exe.step);
+    rl_build_step.dependOn(&install_rl.step);
+
+    const rl_run_cmd = b.addRunArtifact(rl_exe);
+    b.step("run-rl", "Run raylib app").dependOn(&rl_run_cmd.step);
+
+    if (b.args) |args| {
+        rl_run_cmd.addArgs(args);
+    }
 }

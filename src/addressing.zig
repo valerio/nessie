@@ -1,16 +1,37 @@
 const cpu = @import("cpu.zig");
+const opcodes = @import("opcodes.zig");
 const nes = @import("system.zig");
 
 const System = nes.System;
 const Register8 = cpu.Register8;
+const Opcode = opcodes.Opcode;
 
-pub fn immediate(s: *System) u16 {
+pub fn resolveAddr(s: *System, op: Opcode) u16 {
+    return switch (op.mode) {
+        .accumulator => 0,
+        .implied => 0,
+        .immediate => immediate(s),
+        .relative => relative(s),
+        .zeroPage => zeroPage(s, null),
+        .zeroPageX => zeroPage(s, .x),
+        .zeroPageY => zeroPage(s, .y),
+        .absolute => absolute(s, null, op.forceDummyRead),
+        .absoluteX => absolute(s, .x, op.forceDummyRead),
+        .absoluteY => absolute(s, .y, op.forceDummyRead),
+        .jsrAbsolute => jsrAbsolute(s),
+        .indirect => indirect(s),
+        .indirectX => indirectIndexed(s, .x, op.forceDummyRead),
+        .indirectY => indirectIndexed(s, .y, op.forceDummyRead),
+    };
+}
+
+fn immediate(s: *System) u16 {
     const addr = s.cpu.pc;
     s.cpu.pc +%= 1;
     return addr;
 }
 
-pub fn relative(s: *System) u16 {
+fn relative(s: *System) u16 {
     const offset = s.cycleRead(s.cpu.pc);
     s.cpu.pc +%= 1;
 
@@ -18,7 +39,7 @@ pub fn relative(s: *System) u16 {
     return s.cpu.pc -% (0x100 - @as(u16, offset));
 }
 
-pub fn zeroPage(s: *System, comptime r: ?Register8) u16 {
+fn zeroPage(s: *System, comptime r: ?Register8) u16 {
     const addr = s.cycleRead(s.cpu.pc);
     s.cpu.pc +%= 1;
 
@@ -28,7 +49,7 @@ pub fn zeroPage(s: *System, comptime r: ?Register8) u16 {
     return (addr +% s.cpu.readReg(r.?)) & 0xff;
 }
 
-pub fn absolute(s: *System, comptime r: ?Register8, forceDummyRead: bool) u16 {
+fn absolute(s: *System, comptime r: ?Register8, forceDummyRead: bool) u16 {
     const lo = s.cycleRead(s.cpu.pc);
     s.cpu.pc +%= 1;
 
@@ -38,14 +59,20 @@ pub fn absolute(s: *System, comptime r: ?Register8, forceDummyRead: bool) u16 {
     const base: u16 = @as(u16, hi) << 8 | lo;
     if (r == null) return base;
 
-    const addr = (base +% s.cpu.readReg(r.?));
+    const addr = base +% s.cpu.readReg(r.?);
     if (forceDummyRead or (base & 0xff00) != (addr & 0xff00)) {
         _ = s.cycleRead((base & 0xff00) | (addr & 0x00ff));
     }
     return addr;
 }
 
-pub fn indirect(s: *System) u16 {
+fn jsrAbsolute(s: *System) u16 {
+    const lo = s.cycleRead(s.cpu.pc);
+    s.cpu.pc +%= 1;
+    return lo;
+}
+
+fn indirect(s: *System) u16 {
     const lo = s.cycleRead(s.cpu.pc);
     s.cpu.pc +%= 1;
 
@@ -54,16 +81,14 @@ pub fn indirect(s: *System) u16 {
 
     const ptr: u16 = @as(u16, hi) << 8 | lo;
     const addrLo = s.cycleRead(ptr);
-    s.cpu.pc +%= 1;
 
     const ptrHi = if ((ptr & 0x00ff) == 0x00ff) ptr & 0xff00 else ptr + 1;
     const addrHi = s.cycleRead(ptrHi);
 
-    s.cpu.pc +%= 1;
     return @as(u16, addrHi) << 8 | addrLo;
 }
 
-pub fn indirectIndexed(s: *System, comptime r: Register8, forceDummyRead: bool) u16 {
+fn indirectIndexed(s: *System, comptime r: Register8, forceDummyRead: bool) u16 {
     const operand = s.cycleRead(s.cpu.pc);
     s.cpu.pc +%= 1;
 

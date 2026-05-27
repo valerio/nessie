@@ -18,7 +18,11 @@ pub const Mnemonic = enum(u6) {
 };
 
 pub const AddrMode = enum(u4) {
-    implied, immediate, relative,
+    implied,
+    accumulator,
+    immediate,
+    relative,
+    jsrAbsolute,
     zeroPage, zeroPageX, zeroPageY,
     absolute, absoluteX, absoluteY,
     indirect, indirectX, indirectY,
