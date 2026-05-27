@@ -36,17 +36,16 @@ const AppState = struct {
 };
 
 pub fn main(init: std.process.Init) !void {
-    const allocator = init.gpa;
-    const arena = init.arena.allocator();
-    const args = try init.minimal.args.toSlice(arena);
+    const allocator = init.arena.allocator();
+    const args = try init.minimal.args.toSlice(allocator);
 
     if (args.len < 2) {
         std.debug.print("usage: nessie <rom.nes>\n", .{});
         return;
     }
 
-    var sys = try nessie.System.createFromFile(allocator, init.io, args[1]);
-    defer sys.deinit();
+    var sys = try nessie.System.initFromFile(allocator, init.io, args[1]);
+    defer sys.deinit(allocator);
 
     rl.initWindow(screenW * scale, screenH * scale + toolbarH, "nessie");
     defer rl.closeWindow();
@@ -78,9 +77,9 @@ pub fn main(init: std.process.Init) !void {
         rl.updateTexture(screenTexture, &state.sys.ppu.framebuffer);
 
         rl.beginDrawing();
-        defer rl.endDrawing();
-        rl.clearBackground(.blue);
+        rl.clearBackground(.black);
         drawUi(&state, screenTexture, paletteShader);
+        rl.endDrawing();
     }
 }
 
