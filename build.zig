@@ -154,7 +154,33 @@ pub fn build(b: *std.Build) void {
     // Lastly, the Zig build system is relatively simple and self-contained,
     // and reading its source code will allow you to master it.
 
-    try buildRaylib(b, mod, target, optimize);
+    buildAccuracyCoinHarness(b, mod, target);
+    buildRaylib(b, mod, target, optimize);
+}
+
+fn buildAccuracyCoinHarness(
+    b: *std.Build,
+    mod: *std.Build.Module,
+    target: std.Build.ResolvedTarget,
+) void {
+    const acExe = b.addExecutable(.{
+        .name = "nessie-accuracycoin",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("apps/accuracycoin/main.zig"),
+            .target = target,
+            .optimize = .ReleaseFast,
+            .imports = &.{
+                .{ .name = "nessie", .module = mod },
+            },
+        }),
+    });
+
+    const runAc = b.addRunArtifact(acExe);
+    b.step("accuracycoin", "Run AccuracyCoin harness").dependOn(&runAc.step);
+
+    if (b.args) |args| {
+        runAc.addArgs(args);
+    }
 }
 
 fn buildRaylib(
@@ -162,7 +188,7 @@ fn buildRaylib(
     mod: *std.Build.Module,
     target: std.Build.ResolvedTarget,
     optimize: std.builtin.OptimizeMode,
-) !void {
+) void {
     const raylib_zig = b.dependency("raylib_zig", .{
         .target = target,
         .optimize = optimize,

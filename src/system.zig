@@ -2,6 +2,7 @@ const std = @import("std");
 const cpu = @import("cpu.zig");
 const mapper = @import("mapper.zig");
 const cart = @import("cart.zig");
+const input = @import("input.zig");
 const ppu = @import("ppu.zig");
 const opcodes = @import("opcodes.zig");
 const addressing = @import("addressing.zig");
@@ -12,6 +13,7 @@ const Cpu = cpu.Cpu;
 const Mapper = mapper.Mapper;
 const Cartridge = cart.Cartridge;
 const Ppu = ppu.Ppu;
+const Controller = input.Controller;
 
 const internalRamSize = 0x800; // 2KB
 
@@ -19,6 +21,8 @@ pub const System = struct {
     cpu: Cpu = .{},
     internalRam: [internalRamSize]u8 = [_]u8{0} ** internalRamSize,
     ppu: Ppu = .{},
+    controller1: Controller = .{},
+    controller2: Controller = .{},
     mapper: Mapper,
     cartridge: Cartridge = .{},
     allocator: ?std.mem.Allocator = null,
@@ -56,6 +60,24 @@ pub const System = struct {
             if (self.frameCounter != startFrame) break;
             self.runInstruction();
         }
+    }
+
+    pub fn setController1Buttons(self: *System, buttons: u8) void {
+        self.controller1.buttons = buttons;
+        if (self.controller1.strobe) self.controller1.shiftReg = buttons;
+    }
+
+    pub fn setController2Buttons(self: *System, buttons: u8) void {
+        self.controller2.buttons = buttons;
+        if (self.controller2.strobe) self.controller2.shiftReg = buttons;
+    }
+
+    pub fn readMemory(self: *const System, addr: u16) u8 {
+        return switch (addr) {
+            0x0000...0x1fff => self.internalRam[addr & 0x07ff],
+            0x6000...0xffff => self.mapper.read(addr),
+            else => 0,
+        };
     }
 
     fn runInstruction(self: *System) void {
