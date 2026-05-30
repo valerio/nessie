@@ -37,6 +37,8 @@ pub const Cpu = struct {
     pc: u16 = 0,
     flags: Flags = .{ .i = true },
     halted: bool = false,
+    addrBase: u16 = 0,
+    lastCycleWasDmcRead: bool = false,
 
     pub fn readReg(self: *const Cpu, reg: Register8) u8 {
         return switch (reg) {

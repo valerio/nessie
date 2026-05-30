@@ -3,6 +3,8 @@ const cpu = @import("cpu.zig");
 const mapper = @import("mapper.zig");
 const cart = @import("cart.zig");
 const input = @import("input.zig");
+const apu_mod = @import("apu.zig");
+const dmc_mod = @import("dmc.zig");
 const ppu = @import("ppu.zig");
 const opcodes = @import("opcodes.zig");
 const addressing = @import("addressing.zig");
@@ -14,27 +16,64 @@ const Mapper = mapper.Mapper;
 const Cartridge = cart.Cartridge;
 const Ppu = ppu.Ppu;
 const Controller = input.Controller;
+const Apu = apu_mod.Apu;
 
 const internalRamSize = 0x800; // 2KB
+const apuDecodeMask = 0xffe0;
+const apuDecodeBase = 0x4000;
+
+fn isPpuRegisterAddr(addr: u16) bool {
+    return addr >= 0x2000 and addr < 0x4000;
+}
+
+fn dotToCpuCycle(dot: u32) u32 {
+    return (dot + 2) / 3;
+}
 
 pub const System = struct {
+    // Owned machine components.
     cpu: Cpu = .{},
-    internalRam: [internalRamSize]u8 = [_]u8{0} ** internalRamSize,
     ppu: Ppu = .{},
+    apu: Apu = .{},
     controller1: Controller = .{},
     controller2: Controller = .{},
     mapper: Mapper,
     cartridge: Cartridge = .{},
-    allocator: ?std.mem.Allocator = null,
-    frameCounter: u64 = 0,
-    pendingNmi: bool = false,
-    pendingIrq: bool = false,
+    internalRam: [internalRamSize]u8 = [_]u8{0} ** internalRamSize,
 
-    pub fn initFromCart(allocator: std.mem.Allocator, c: Cartridge) System {
+    // CPU bus and frame accounting.
+    cpuCycles: u64 = 0,
+    frameCounter: u64 = 0,
+    lastBusValue: u8 = 0,
+    lastReadAddr: u16 = 0,
+    ppuDotAdjust: i8 = 0,
+
+    // NMI edge timing.
+    pendingNmi: bool = false,
+    nmiDelay: ?u8 = null,
+    ppuNmiLine: bool = false,
+    nmiRisingDot: ?u32 = null,
+    nmiFallingDot: ?u32 = null,
+    ppuDotsSinceNmiCommit: u32 = 0,
+    nmiCommittedCyclesThisInstruction: u32 = 0,
+
+    // IRQ sampling.
+    irqReady: bool = false,
+    pendingIrq: bool = false,
+    irqSample: bool = false,
+    prevIrqSample: bool = false,
+
+    // DMA state.
+    pendingOamDmaPage: ?u8 = null,
+    oamDmaActive: bool = false,
+    oamDmaRemaining: u16 = 0,
+    oamHaltedCoreAddr: u16 = 0,
+
+    pub fn initFromCart(c: Cartridge) System {
         var sys: System = .{
             .mapper = mapper.fromCart(&c),
             .cartridge = c,
-            .allocator = allocator,
+            .cpuCycles = 7,
         };
         const lo = sys.busRead(0xfffc);
         const hi = sys.busRead(0xfffd);
@@ -44,7 +83,7 @@ pub const System = struct {
 
     pub fn initFromFile(allocator: std.mem.Allocator, io: std.Io, path: []const u8) !System {
         const c = try cart.loadFile(allocator, io, path);
-        return initFromCart(allocator, c);
+        return initFromCart(c);
     }
 
     pub fn deinit(self: *System, allocator: std.mem.Allocator) void {
@@ -53,12 +92,14 @@ pub const System = struct {
     }
 
     pub fn runFrame(self: *System) void {
-        const startFrame = self.frameCounter;
-        // TODO: should bubble frame events up from ppu so we can
-        // stop at the right moment otherwise this is too coarse.
-        for (0..40000) |_| {
-            if (self.frameCounter != startFrame) break;
+        var previousScanline = self.ppu.scanline;
+        var frameComplete = false;
+
+        while (!frameComplete) {
             self.runInstruction();
+            const currentScanline = self.ppu.scanline;
+            frameComplete = previousScanline < ppu.scanlinePostRender and currentScanline >= ppu.scanlinePostRender;
+            previousScanline = currentScanline;
         }
     }
 
@@ -81,20 +122,29 @@ pub const System = struct {
     }
 
     fn runInstruction(self: *System) void {
+        const cyclesBefore = self.cpuCycles;
+        self.nmiCommittedCyclesThisInstruction = 0;
         if (self.cpu.halted) {
             tick(self);
+            self.commitNmiForInstruction(cyclesBefore);
             return;
         }
 
         if (self.pendingNmi) {
             self.pendingNmi = false;
             instructions.interrupt(self, .nmi);
+            self.runPendingDmaAtInstructionBoundary();
+            self.commitNmiForInstruction(cyclesBefore);
+            self.samplePendingIrq();
             return;
         }
 
-        if (!self.cpu.flags.i and self.pendingIrq) {
-            self.pendingIrq = false;
+        if (self.irqReady) {
+            self.irqReady = false;
             instructions.interrupt(self, .irq);
+            self.runPendingDmaAtInstructionBoundary();
+            self.commitNmiForInstruction(cyclesBefore);
+            self.samplePendingIrq();
             return;
         }
 
@@ -102,47 +152,386 @@ pub const System = struct {
         self.cpu.pc +%= 1;
 
         instructions.exec(self, op);
+        self.runPendingDmaAtInstructionBoundary();
+        self.commitNmiForInstruction(cyclesBefore);
+        self.samplePendingIrq();
     }
 
     pub fn cycleRead(s: *System, addr: u16) u8 {
+        return s.cycleReadWithIrqLatch(addr, true);
+    }
+
+    pub fn cycleReadWithoutIrqLatch(s: *System, addr: u16) u8 {
+        return s.cycleReadWithIrqLatch(addr, false);
+    }
+
+    fn cycleReadWithIrqLatch(s: *System, addr: u16, latch_irq: bool) u8 {
+        const deferPpu = isPpuRegisterAddr(addr);
+        s.lastReadAddr = addr;
+        s.tickPre(latch_irq, !deferPpu);
+        s.runDmcSteal(.read);
         const value = s.busRead(addr);
-        tick(s);
+        s.finishCpuBusOp(deferPpu);
         return value;
     }
 
     pub fn cycleWrite(s: *System, addr: u16, value: u8) void {
+        const deferPpu = isPpuRegisterAddr(addr);
+        s.tickPre(true, !deferPpu);
+        s.runDmcSteal(.write);
         s.busWrite(addr, value);
-        tick(s);
+        s.finishCpuBusOp(deferPpu);
     }
 
     pub fn cycleIdle(s: *System) void {
-        tick(s);
+        s.tickPre(true, true);
+        s.runDmcSteal(.idle);
+        s.lastReadAddr = 0;
+        s.finishCpuBusOp(false);
     }
 
-    fn tick(s: *System) void {
-        // TODO tick all components
-        const result = s.ppu.tick(&s.mapper, s.cartridge.mirrorMode);
-        if (result.nmi) s.pendingNmi = true;
-        if (result.frameDone) s.frameCounter += 1;
+    fn dmaCycleRead(s: *System, addr: u16) u8 {
+        s.lastReadAddr = addr;
+        s.tickPre(false, true);
+        s.runDmcSteal(.read);
+        const value = s.busRead(addr);
+        s.finishCpuBusOp(false);
+        return value;
     }
 
-    fn busRead(self: *System, addr: u16) u8 {
-        switch (addr) {
-            0x0000...0x1fff => return self.internalRam[addr & 0x07ff],
-            0x2000...0x3fff => return self.ppu.readRegister(&self.mapper, self.cartridge.mirrorMode, addr),
-            0x4000...0x4017 => return 0,
-            0x6000...0xffff => return self.mapper.read(addr),
-            else => return 0,
+    fn dmaCycleIdle(s: *System) void {
+        s.tickPre(false, true);
+        s.runDmcSteal(.idle);
+        s.lastReadAddr = 0;
+        s.finishCpuBusOp(false);
+    }
+
+    fn tickPre(s: *System, latch_irq: bool, advance_ppu: bool) void {
+        s.cpu.lastCycleWasDmcRead = false;
+        if (latch_irq) s.latchIrq();
+        if (advance_ppu) s.advancePpu();
+        s.cpuCycles += 1;
+        s.apu.tickChannelTimers(s.isGetCycle());
+    }
+
+    fn latchIrq(self: *System) void {
+        self.prevIrqSample = self.irqSample;
+        self.irqSample = self.pendingIrq and !self.cpu.flags.i;
+    }
+
+    fn samplePendingIrq(self: *System) void {
+        self.irqReady = self.prevIrqSample;
+    }
+
+    fn tickNmiDelay(self: *System, cpu_cycles: u32) void {
+        const delay = self.nmiDelay orelse return;
+        if (cpu_cycles >= delay) {
+            self.nmiDelay = null;
+            self.pendingNmi = true;
+        } else {
+            self.nmiDelay = @intCast(delay - cpu_cycles);
         }
     }
 
+    fn commitNmiForInstruction(self: *System, cycles_before: u64) void {
+        const total: u32 = @intCast(self.cpuCycles - cycles_before);
+        if (total <= self.nmiCommittedCyclesThisInstruction) return;
+        self.commitNmi(total - self.nmiCommittedCyclesThisInstruction);
+    }
+
+    pub fn commitNmi(self: *System, cpu_cycles: u32) void {
+        if (cpu_cycles == 0) return;
+        self.nmiCommittedCyclesThisInstruction += cpu_cycles;
+
+        if (self.nmiRisingDot) |risingDot| {
+            self.nmiRisingDot = null;
+            if (self.nmiDelay == null and !self.pendingNmi) {
+                const detectCycle = dotToCpuCycle(risingDot);
+                if (self.nmiFallingDot) |fallingDot| {
+                    self.nmiFallingDot = null;
+                    if (dotToCpuCycle(fallingDot) <= detectCycle) {
+                        self.tickNmiDelay(cpu_cycles);
+                        self.ppuDotsSinceNmiCommit = 0;
+                        return;
+                    }
+                }
+
+                const preTriggerCycles = @min(cpu_cycles, detectCycle + 1);
+                self.tickNmiDelay(preTriggerCycles);
+
+                self.nmiDelay = 1;
+                if (detectCycle + 1 <= cpu_cycles) self.tickNmiDelay(cpu_cycles - detectCycle - 1);
+            } else {
+                self.tickNmiDelay(cpu_cycles);
+            }
+        } else {
+            self.nmiFallingDot = null;
+            self.tickNmiDelay(cpu_cycles);
+        }
+
+        self.ppuDotsSinceNmiCommit = 0;
+    }
+
+    fn setPpuNmiLine(self: *System, level: bool) void {
+        if (level) {
+            if (!self.ppuNmiLine) {
+                self.ppuNmiLine = true;
+                if (self.nmiRisingDot == null) self.nmiRisingDot = self.ppuDotsSinceNmiCommit;
+                self.nmiFallingDot = null;
+            }
+            return;
+        }
+
+        if (self.ppuNmiLine and self.nmiRisingDot != null and self.nmiFallingDot == null) {
+            self.nmiFallingDot = self.ppuDotsSinceNmiCommit;
+        }
+        self.ppuNmiLine = false;
+    }
+
+    fn cancelNmi(self: *System) void {
+        self.nmiDelay = null;
+        self.pendingNmi = false;
+        self.nmiRisingDot = null;
+        self.nmiFallingDot = null;
+        self.ppuNmiLine = false;
+    }
+
+    fn updateIrqLine(self: *System) void {
+        self.pendingIrq = self.apu.frameIrqPending or self.apu.dmc.irqFlag;
+    }
+
+    fn tick(s: *System) void {
+        s.advancePpu();
+        s.cpuCycles += 1;
+        s.apu.tickTimers(s.isGetCycle());
+        s.updateIrqLine();
+        if ((s.cpuCycles & 1) == 0) {
+            s.controller1.commitStrobe();
+            s.controller2.commitStrobe();
+        }
+    }
+
+    fn tickDmcDmaCycle(s: *System) void {
+        tick(s);
+        if (!s.oamDmaActive) s.latchIrq();
+    }
+
+    fn finishCpuBusOp(self: *System, deferred_ppu: bool) void {
+        self.apu.tickFrameCounter();
+        self.updateIrqLine();
+        if ((self.cpuCycles & 1) == 0) {
+            self.controller1.commitStrobe();
+            self.controller2.commitStrobe();
+        }
+        if (deferred_ppu) self.advancePpu();
+    }
+
+    fn advancePpu(self: *System) void {
+        const dots = 3 + self.ppuDotAdjust;
+        self.ppuDotAdjust = 0;
+        if (dots <= 0) return;
+        self.advancePpuDots(@intCast(dots));
+    }
+
+    fn advancePpuDots(self: *System, dots: u32) void {
+        for (0..dots) |_| {
+            const result = self.ppu.tickDots(&self.mapper, self.cartridge.mirrorMode, 1);
+            if (result.nmi) self.setPpuNmiLine(true);
+            if (!self.ppu.status.vblank or !self.ppu.ctrl.nmiEnable) self.setPpuNmiLine(false);
+            if (result.frameDone) self.frameCounter += 1;
+            self.ppuDotsSinceNmiCommit += 1;
+        }
+    }
+
+    fn isGetCycle(self: *const System) bool {
+        return (self.cpuCycles & 1) == 0;
+    }
+
+    fn busRead(self: *System, addr: u16) u8 {
+        self.lastReadAddr = addr;
+
+        if (self.readOamDmaApuMirror(addr)) |dmaValue| return dmaValue;
+
+        switch (addr) {
+            0x0000...0x1fff => {
+                self.lastBusValue = self.internalRam[addr & 0x07ff];
+                return self.lastBusValue;
+            },
+            0x2000...0x3fff => {
+                if ((addr & 0x0007) == 0x0002) {
+                    const statusHigh = self.ppu.readStatusRegisterM2High();
+                    if (statusHigh.suppressNmi) self.cancelNmi();
+                    self.setPpuNmiLine(false);
+                    self.advancePpuDots(2);
+                    self.lastBusValue = self.ppu.finishStatusRegisterM2Low(statusHigh.vblankBit);
+                    self.ppuDotAdjust -= 2;
+                } else {
+                    self.lastBusValue = self.ppu.readRegister(&self.mapper, self.cartridge.mirrorMode, addr);
+                }
+                return self.lastBusValue;
+            },
+            0x4000...0x401f => return self.readIoRegister(addr),
+            0x4020...0x5fff => return self.lastBusValue,
+            0x6000...0xffff => {
+                self.lastBusValue = self.mapper.read(addr);
+                return self.lastBusValue;
+            },
+        }
+    }
+
+    fn readOamDmaApuMirror(self: *System, addr: u16) ?u8 {
+        if (!self.oamDmaActive) return null;
+
+        const coreBusInApuRange = (self.oamHaltedCoreAddr & apuDecodeMask) == apuDecodeBase;
+        if (!coreBusInApuRange) {
+            if (addr >= 0x4000 and addr < 0x4020) return self.lastBusValue;
+            return null;
+        }
+
+        if (addr < 0x2000) {
+            self.lastBusValue = self.internalRam[addr & 0x07ff];
+        } else if (addr >= 0x6000) {
+            self.lastBusValue = self.mapper.read(addr);
+        }
+
+        const mirrored: u16 = 0x4000 | (addr & 0x001f);
+        self.lastBusValue = self.readIoRegister(mirrored);
+        return self.lastBusValue;
+    }
+
+    fn readIoRegister(self: *System, addr: u16) u8 {
+        var effectiveAddr = addr;
+        var conflictSample: ?u8 = null;
+        if (addr == 0x4000 and self.apu.dmc.conflictVisibleCpuOpsRemaining > 0) {
+            effectiveAddr = 0x4000 | (self.apu.dmc.conflictSampleAddr & 0x001f);
+            conflictSample = self.apu.dmc.conflictSample;
+        }
+
+        if (effectiveAddr == 0x4015) {
+            const status = self.apu.readStatus(self.lastBusValue);
+            self.updateIrqLine();
+            if (conflictSample != null) {
+                return self.lastBusValue;
+            }
+            return (status & 0xdf) | (self.lastBusValue & 0x20);
+        }
+
+        const highBits: u8 = if (conflictSample) |sample| sample & 0xe0 else self.lastBusValue & 0xe0;
+        if (effectiveAddr == 0x4016) {
+            self.lastBusValue = (self.controller1.read() & 0x1f) | highBits;
+            return self.lastBusValue;
+        }
+        if (effectiveAddr == 0x4017) {
+            self.lastBusValue = (self.controller2.read() & 0x1f) | highBits;
+            return self.lastBusValue;
+        }
+
+        return self.lastBusValue;
+    }
+
     fn busWrite(self: *System, addr: u16, value: u8) void {
+        self.lastBusValue = value;
         switch (addr) {
             0x0000...0x1fff => self.internalRam[addr & 0x07ff] = value,
-            0x2000...0x3fff => self.ppu.writeRegister(&self.mapper, self.cartridge.mirrorMode, addr, value),
-            0x4000...0x4017 => {},
+            0x2000...0x3fff => {
+                const wasNmiEnabled = self.ppu.ctrl.nmiEnable;
+                self.ppu.writeRegister(&self.mapper, self.cartridge.mirrorMode, addr, value);
+                if ((addr & 0x0007) == 0 and !wasNmiEnabled and self.ppu.ctrl.nmiEnable and self.ppu.status.vblank) {
+                    self.setPpuNmiLine(true);
+                } else if ((addr & 0x0007) == 0 and !self.ppu.ctrl.nmiEnable) {
+                    self.setPpuNmiLine(false);
+                }
+            },
+            0x4014 => self.pendingOamDmaPage = value,
+            0x4016 => {
+                self.controller1.write4016(value);
+                self.controller2.write4016(value);
+            },
+            0x4017 => {
+                self.apu.writeFrameCounter(value);
+                self.updateIrqLine();
+            },
+            0x4010...0x4013, 0x4000...0x400f => {
+                self.apu.writeRegister(addr, value);
+                self.updateIrqLine();
+            },
+            0x4015 => {
+                self.apu.writeStatus(value, self.isGetCycle());
+                self.updateIrqLine();
+            },
             0x6000...0xffff => self.mapper.write(addr, value),
             else => {},
+        }
+    }
+
+    fn writeOamDma(self: *System, page: u8) void {
+        const base: u16 = @as(u16, page) << 8;
+        self.oamDmaActive = true;
+        defer {
+            self.oamDmaActive = false;
+            self.oamDmaRemaining = 0;
+        }
+
+        const needsAlignment = !self.isGetCycle();
+        var remaining: u16 = 1 + (if (needsAlignment) @as(u16, 1) else 0) + 512;
+
+        self.oamDmaRemaining = remaining;
+        remaining -= 1;
+        self.dmaCycleIdle();
+
+        if (needsAlignment) {
+            self.oamDmaRemaining = remaining;
+            remaining -= 1;
+            self.dmaCycleIdle();
+        }
+
+        const startOamAddr = self.ppu.oamAddr;
+        for (0..256) |i| {
+            self.oamDmaRemaining = remaining;
+            remaining -= 1;
+            const value = self.dmaCycleRead(base + @as(u16, @intCast(i)));
+
+            self.ppu.oam[startOamAddr +% @as(u8, @intCast(i))] = value;
+
+            self.oamDmaRemaining = remaining;
+            remaining -= 1;
+            self.dmaCycleIdle();
+        }
+    }
+
+    fn runPendingDmaAtInstructionBoundary(self: *System) void {
+        self.oamHaltedCoreAddr = self.cpu.pc;
+        self.runPendingOamDma();
+    }
+
+    fn runPendingOamDma(self: *System) void {
+        const page = self.pendingOamDmaPage orelse return;
+        self.pendingOamDmaPage = null;
+        self.writeOamDma(page);
+    }
+
+    fn runDmcSteal(self: *System, op_type: dmc_mod.BusOp) void {
+        while (true) {
+            const step = self.apu.dmc.tickDma(self.isGetCycle(), op_type, self.oamDmaActive);
+            switch (step) {
+                .none, .wait => return,
+                .phantom => |phase| {
+                    const overlapsOamCycle = phase != .alignPhase or
+                        (op_type == .idle and self.oamDmaRemaining <= 2);
+                    if (self.oamDmaActive and overlapsOamCycle) return;
+
+                    _ = self.busRead(self.lastReadAddr);
+                    self.tickDmcDmaCycle();
+                },
+                .sample => |addr| {
+                    const byte = self.busRead(addr);
+                    self.apu.dmc.completeDmaRead(byte);
+                    self.tickDmcDmaCycle();
+                    self.cpu.lastCycleWasDmcRead = true;
+                    self.updateIrqLine();
+                    return;
+                },
+            }
         }
     }
 };
