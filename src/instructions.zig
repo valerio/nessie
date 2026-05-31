@@ -1,3 +1,4 @@
+const std = @import("std");
 const cpu = @import("cpu.zig");
 const opcodes = @import("opcodes.zig");
 const nes = @import("system.zig");
@@ -19,11 +20,34 @@ fn stackPop(s: *System) u8 {
     return s.cycleRead(0x0100 | @as(u16, s.cpu.sp));
 }
 
+test "NMI pending during BRK sequence hijacks vector but keeps BRK stack flags" {
+    const mapper = @import("mapper.zig");
+    const testing = std.testing;
+
+    var prg = [_]u8{0} ** 0x4000;
+    prg[0x3ffa] = 0x00;
+    prg[0x3ffb] = 0x40;
+    prg[0x3ffe] = 0x00;
+    prg[0x3fff] = 0x30;
+
+    var system: System = .{ .mapper = mapper.fromData(&prg) };
+    system.cpu.pc = 0x0201;
+    system.ppu.ctrl.nmiEnable = true;
+    system.ppu.scanline = 241;
+    system.ppu.dot = 0;
+
+    interrupt(&system, .brk);
+
+    try testing.expectEqual(@as(u16, 0x4000), system.cpu.pc);
+    try testing.expect(!system.pendingNmi);
+    try testing.expectEqual(@as(u8, 0x34), system.internalRam[0x01fb & 0x07ff]);
+}
+
 pub fn exec(s: *System, op: opcodes.Opcode) void {
     const addr = addressing.resolveAddr(s, op);
 
     switch (op.mnemonic) {
-        .nop => nop(s),
+        .nop => nop(s, op, addr),
         .lda => ld(s, .a, addr),
         .ldx => ld(s, .x, addr),
         .ldy => ld(s, .y, addr),
@@ -80,6 +104,24 @@ pub fn exec(s: *System, op: opcodes.Opcode) void {
         .pla => pla(s),
         .plp => plp(s),
         .kil => s.cpu.halted = true,
+        .slo => slo(s, addr),
+        .rla => rla(s, addr),
+        .sre => sre(s, addr),
+        .rra => rra(s, addr),
+        .sax => sax(s, addr),
+        .lax => lax(s, addr),
+        .sha => sha(s, addr),
+        .shs => shs(s, addr),
+        .shy => shy(s, addr),
+        .shx => shx(s, addr),
+        .lae => lae(s, addr),
+        .anc => anc(s, addr),
+        .asr => asr(s, addr),
+        .arr => arr(s, addr),
+        .ane => ane(s, addr),
+        .axs => axs(s, addr),
+        .dcp => dcp(s, addr),
+        .isc => isc(s, addr),
     }
 }
 
@@ -97,15 +139,27 @@ pub fn interrupt(s: *System, kind: Interrupt) void {
     flags.unused = true;
     stackPush(s, flags.toByte());
 
+    s.commitNmi(5);
     s.cpu.flags.i = true;
-    const vector: u16 = if (kind == .nmi) 0xfffa else 0xfffe;
+    const hijackedByNmi = kind != .nmi and s.pendingNmi;
+    if (hijackedByNmi) s.pendingNmi = false;
+    const vector: u16 = if (kind == .nmi or hijackedByNmi) 0xfffa else 0xfffe;
     const lo = s.cycleRead(vector);
     const hi = s.cycleRead(vector + 1);
     s.cpu.pc = @as(u16, hi) << 8 | lo;
+    s.commitNmi(2);
+    if (!hijackedByNmi and kind != .nmi and s.pendingNmi) {
+        s.pendingNmi = false;
+        s.nmiDelay = 1;
+    }
 }
 
-fn nop(s: *System) void {
-    _ = s.cycleRead(s.cpu.pc);
+fn nop(s: *System, op: opcodes.Opcode, addr: u16) void {
+    if (op.mode == .implied) {
+        _ = s.cycleRead(s.cpu.pc);
+    } else {
+        _ = s.cycleRead(addr);
+    }
 }
 
 fn ld(s: *System, reg: Register8, addr: u16) void {
@@ -138,7 +192,10 @@ fn aluA(s: *System, comptime op: opcodes.Mnemonic, addr: u16) void {
 fn addA(s: *System, comptime op: opcodes.Mnemonic, addr: u16) void {
     var value = s.cycleRead(addr);
     if (op == .sbc) value ^= 0xff;
+    adcValue(s, value);
+}
 
+fn adcValue(s: *System, value: u8) void {
     const a = s.cpu.a;
     const carry: u16 = @intFromBool(s.cpu.flags.c);
     const sum: u16 = @as(u16, a) +% @as(u16, value) +% carry;
@@ -173,7 +230,11 @@ fn decReg(s: *System, reg: Register8) void {
 
 fn shift(s: *System, op: ShiftOp, addr: ?u16) void {
     var original: u8 = s.cpu.a;
-    if (addr) |a| original = s.cycleRead(a);
+    if (addr) |a| {
+        original = s.cycleRead(a);
+    } else {
+        _ = s.cycleRead(s.cpu.pc);
+    }
 
     const carry: u8 = @intFromBool(s.cpu.flags.c);
     var value: u8 = undefined;
@@ -204,6 +265,168 @@ fn shift(s: *System, op: ShiftOp, addr: ?u16) void {
     }
 
     s.cpu.setNZ(value);
+}
+
+fn slo(s: *System, addr: u16) void {
+    const original = s.cycleRead(addr);
+    const value = original << 1;
+    s.cpu.flags.c = original & 0x80 != 0;
+    s.cycleWrite(addr, original);
+    s.cycleWrite(addr, value);
+    s.cpu.a |= value;
+    s.cpu.setNZ(s.cpu.a);
+}
+
+fn rla(s: *System, addr: u16) void {
+    const original = s.cycleRead(addr);
+    const carry: u8 = @intFromBool(s.cpu.flags.c);
+    const value = (original << 1) | carry;
+    s.cpu.flags.c = original & 0x80 != 0;
+    s.cycleWrite(addr, original);
+    s.cycleWrite(addr, value);
+    s.cpu.a &= value;
+    s.cpu.setNZ(s.cpu.a);
+}
+
+fn sre(s: *System, addr: u16) void {
+    const original = s.cycleRead(addr);
+    const value = original >> 1;
+    s.cpu.flags.c = original & 0x01 != 0;
+    s.cycleWrite(addr, original);
+    s.cycleWrite(addr, value);
+    s.cpu.a ^= value;
+    s.cpu.setNZ(s.cpu.a);
+}
+
+fn rra(s: *System, addr: u16) void {
+    const original = s.cycleRead(addr);
+    const carry: u8 = @intFromBool(s.cpu.flags.c);
+    const value = (carry << 7) | (original >> 1);
+    s.cpu.flags.c = original & 0x01 != 0;
+    s.cycleWrite(addr, original);
+    s.cycleWrite(addr, value);
+    adcValue(s, value);
+}
+
+fn sax(s: *System, addr: u16) void {
+    s.cycleWrite(addr, s.cpu.a & s.cpu.x);
+}
+
+fn lax(s: *System, addr: u16) void {
+    const value = s.cycleRead(addr);
+    s.cpu.a = value;
+    s.cpu.x = value;
+    s.cpu.setNZ(value);
+}
+
+fn unstableStoreAddr(s: *System, addr: u16, value: u8) u16 {
+    const pageCrossed = (s.cpu.addrBase & 0xff00) != (addr & 0xff00);
+    return if (pageCrossed) (@as(u16, value) << 8) | (addr & 0x00ff) else addr;
+}
+
+fn sha(s: *System, addr: u16) void {
+    if (s.cpu.lastCycleWasDmcRead) {
+        s.cycleWrite(addr, s.cpu.a & s.cpu.x);
+        return;
+    }
+
+    const hi: u8 = @truncate(s.cpu.addrBase >> 8);
+    const value = s.cpu.a & s.cpu.x & (hi +% 1);
+    s.cycleWrite(unstableStoreAddr(s, addr, value), value);
+}
+
+fn shs(s: *System, addr: u16) void {
+    s.cpu.sp = s.cpu.a & s.cpu.x;
+    if (s.cpu.lastCycleWasDmcRead) {
+        s.cycleWrite(addr, s.cpu.sp);
+        return;
+    }
+
+    const hi: u8 = @truncate(s.cpu.addrBase >> 8);
+    const value = s.cpu.sp & (hi +% 1);
+    s.cycleWrite(unstableStoreAddr(s, addr, value), value);
+}
+
+fn shy(s: *System, addr: u16) void {
+    if (s.cpu.lastCycleWasDmcRead) {
+        s.cycleWrite(addr, s.cpu.y);
+        return;
+    }
+
+    const hi: u8 = @truncate(s.cpu.addrBase >> 8);
+    const value = s.cpu.y & (hi +% 1);
+    s.cycleWrite(unstableStoreAddr(s, addr, value), value);
+}
+
+fn shx(s: *System, addr: u16) void {
+    if (s.cpu.lastCycleWasDmcRead) {
+        s.cycleWrite(addr, s.cpu.x);
+        return;
+    }
+
+    const hi: u8 = @truncate(s.cpu.addrBase >> 8);
+    const value = s.cpu.x & (hi +% 1);
+    s.cycleWrite(unstableStoreAddr(s, addr, value), value);
+}
+
+fn lae(s: *System, addr: u16) void {
+    const value = s.cycleRead(addr) & s.cpu.sp;
+    s.cpu.a = value;
+    s.cpu.x = value;
+    s.cpu.sp = value;
+    s.cpu.setNZ(value);
+}
+
+fn anc(s: *System, addr: u16) void {
+    s.cpu.a &= s.cycleRead(addr);
+    s.cpu.setNZ(s.cpu.a);
+    s.cpu.flags.c = s.cpu.a & 0x80 != 0;
+}
+
+fn asr(s: *System, addr: u16) void {
+    s.cpu.a &= s.cycleRead(addr);
+    s.cpu.flags.c = s.cpu.a & 0x01 != 0;
+    s.cpu.a >>= 1;
+    s.cpu.setNZ(s.cpu.a);
+}
+
+fn arr(s: *System, addr: u16) void {
+    s.cpu.a &= s.cycleRead(addr);
+    const carry: u8 = @intFromBool(s.cpu.flags.c);
+    s.cpu.a = (s.cpu.a >> 1) | (carry << 7);
+    s.cpu.setNZ(s.cpu.a);
+    s.cpu.flags.c = s.cpu.a & 0x40 != 0;
+    s.cpu.flags.v = ((s.cpu.a >> 6) ^ (s.cpu.a >> 5)) & 0x01 != 0;
+}
+
+fn ane(s: *System, addr: u16) void {
+    s.cpu.a = s.cpu.x & s.cycleRead(addr);
+    s.cpu.setNZ(s.cpu.a);
+}
+
+fn axs(s: *System, addr: u16) void {
+    const value = s.cycleRead(addr);
+    const ax = s.cpu.a & s.cpu.x;
+    const result = ax -% value;
+    s.cpu.flags.c = ax >= value;
+    s.cpu.x = result;
+    s.cpu.setNZ(result);
+}
+
+fn dcp(s: *System, addr: u16) void {
+    const original = s.cycleRead(addr);
+    const value = original -% 1;
+    s.cycleWrite(addr, original);
+    s.cycleWrite(addr, value);
+    s.cpu.compare(s.cpu.a, value);
+}
+
+fn isc(s: *System, addr: u16) void {
+    const original = s.cycleRead(addr);
+    const value = original +% 1;
+    s.cycleWrite(addr, original);
+    s.cycleWrite(addr, value);
+    adcValue(s, value ^ 0xff);
 }
 
 fn incMem(s: *System, addr: u16) void {
@@ -255,9 +478,12 @@ fn branch(s: *System, addr: u16, taken: bool) void {
     if (!taken) return;
 
     const pc = s.cpu.pc;
-    _ = s.cycleRead(pc);
-    if ((pc & 0xff00) != (addr & 0xff00)) {
+    const pageCrossed = (pc & 0xff00) != (addr & 0xff00);
+    if (pageCrossed) {
+        _ = s.cycleRead(pc);
         _ = s.cycleRead((pc & 0xff00) | (addr & 0x00ff));
+    } else {
+        _ = s.cycleReadWithoutIrqLatch(pc);
     }
     s.cpu.pc = addr;
 }

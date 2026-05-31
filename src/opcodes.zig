@@ -3,7 +3,7 @@ const std = @import("std");
 const testing = std.testing;
 
 // zig fmt: off
-pub const Mnemonic = enum(u6) {
+pub const Mnemonic = enum(u7) {
     lda, sta, ldx, stx, ldy, sty,            // access
     tax, txa, tay, tya,                      // transfer
     adc, sbc, inc, dec, inx, dex, iny, dey,  // arithmetic
@@ -15,6 +15,9 @@ pub const Mnemonic = enum(u6) {
     pha, pla, php, plp, txs, tsx,            // stack
     clc, sec, cli, sei, cld, sed, clv,       // flags
     nop, kil,                                // other
+    slo, rla, sre, rra, sax, lax,            // unofficial
+    sha, shs, shy, shx, lae,                 // unofficial
+    anc, asr, arr, ane, axs, dcp, isc,       // unofficial
 };
 
 pub const AddrMode = enum(u4) {
@@ -45,7 +48,7 @@ pub const Opcode = packed struct(u16) {
     mode: AddrMode = .implied,
     bytes: u2 = 1,
     forceDummyRead: bool = false,
-    reserved: u3 = 0,
+    reserved: u2 = 0,
 };
 
 pub fn buildTable(comptime specs: []const OpcodeSpec) [256]Opcode {

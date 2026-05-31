@@ -59,6 +59,7 @@ fn absolute(s: *System, comptime r: ?Register8, forceDummyRead: bool) u16 {
     const base: u16 = @as(u16, hi) << 8 | lo;
     if (r == null) return base;
 
+    s.cpu.addrBase = base;
     const addr = base +% s.cpu.readReg(r.?);
     if (forceDummyRead or (base & 0xff00) != (addr & 0xff00)) {
         _ = s.cycleRead((base & 0xff00) | (addr & 0x00ff));
@@ -108,6 +109,7 @@ fn indirectIndexed(s: *System, comptime r: Register8, forceDummyRead: bool) u16 
 
     if (r == .x) return base;
 
+    s.cpu.addrBase = base;
     const addr = base +% s.cpu.y;
     if (forceDummyRead or (base & 0xff00) != (addr & 0xff00)) {
         _ = s.cycleRead((base & 0xff00) | (addr & 0x00ff));
