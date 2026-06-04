@@ -223,9 +223,9 @@ fn runFrames(sys: *nessie.System, frames: u32) void {
 }
 
 fn tap(sys: *nessie.System, buttonMask: u8) void {
-    sys.setController1Buttons(buttonMask);
+    sys.setInput(.one, buttonMask);
     runFrames(sys, 2);
-    sys.setController1Buttons(0);
+    sys.setInput(.one, 0);
     runFrames(sys, 10);
 }
 

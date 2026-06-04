@@ -10,8 +10,10 @@ const apuMode0IrqStart = 29_828;
 const apuMode0Clock = 29_829;
 const apuMode1Clock = 37_281;
 
+pub const sampleRate = 44_100;
+
 const nesCpuClock = 1_789_773;
-const hostSampleRate = 44_100;
+const maxPcmSamples = sampleRate * 2;
 
 const lengthTable = [_]u8{
     10,  254, 20, 2,  40, 4,  80, 6,
@@ -333,9 +335,12 @@ pub const Apu = struct {
     sampleClock: u32 = 0,
     audioPhase: u1 = 0,
     lastSample: f32 = 0,
-    hp1: Filter = Filter.highPass(hostSampleRate, 37),
-    hp2: Filter = Filter.highPass(hostSampleRate, 440),
-    lp: Filter = Filter.lowPass(hostSampleRate, 14_000),
+    pcmRing: [maxPcmSamples]f32 = [_]f32{0} ** maxPcmSamples,
+    pcmReadPos: u64 = 0,
+    pcmWritePos: u64 = 0,
+    hp1: Filter = Filter.highPass(sampleRate, 37),
+    hp2: Filter = Filter.highPass(sampleRate, 440),
+    lp: Filter = Filter.lowPass(sampleRate, 14_000),
 
     pub fn tickChannelTimers(self: *Apu, is_get_cycle: bool) void {
         self.triangle.tickTimer();
@@ -354,7 +359,6 @@ pub const Apu = struct {
     }
 
     pub fn tickAudio(self: *Apu, cpu_cycles: u32) void {
-        // TODO wire samples to the frontend audio sink instead of only retaining lastSample.
         for (0..cpu_cycles) |_| {
             if (self.audioPhase == 0) {
                 self.pulse1.tickTimer();
@@ -366,8 +370,25 @@ pub const Apu = struct {
         }
     }
 
+    pub fn fillStereoSamples(self: *Apu, out: []f32) void {
+        std.debug.assert(out.len % 2 == 0);
+
+        var held: f32 = 0;
+        for (0..out.len / 2) |frame| {
+            if (self.pcmReadPos < self.pcmWritePos) {
+                const index: usize = @intCast(self.pcmReadPos % maxPcmSamples);
+                held = self.pcmRing[index];
+                self.pcmReadPos += 1;
+            }
+
+            const base = frame * 2;
+            out[base] = held;
+            out[base + 1] = held;
+        }
+    }
+
     fn sampleAudio(self: *Apu) void {
-        self.sampleClock += hostSampleRate;
+        self.sampleClock += sampleRate;
         if (self.sampleClock < nesCpuClock) return;
         self.sampleClock -= nesCpuClock;
 
@@ -379,6 +400,11 @@ pub const Apu = struct {
             self.dmc.outputLevel,
         );
         self.lastSample = self.lp.apply(self.hp2.apply(self.hp1.apply(mixed)));
+        if (self.pcmWritePos - self.pcmReadPos < maxPcmSamples) {
+            const index: usize = @intCast(self.pcmWritePos % maxPcmSamples);
+            self.pcmRing[index] = self.lastSample;
+            self.pcmWritePos += 1;
+        }
     }
 
     fn stepFrameCounter(self: *Apu) void {

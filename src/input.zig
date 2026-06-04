@@ -9,6 +9,8 @@ pub const buttons = struct {
     pub const right: u8 = 0x80;
 };
 
+pub const ControllerSelector = enum { one, two };
+
 pub const Controller = struct {
     strobe: bool = false,
     pendingStrobe: bool = false,

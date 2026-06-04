@@ -10,8 +10,8 @@ pub const paletteColorCount = 64;
 pub const paletteBytesPerColor = 3;
 pub const paletteSize = paletteColorCount * paletteBytesPerColor; // 192
 
-/// generated using https://bisqwit.iki.fi/utils/nespalette.php.
-/// NES output isn't a strictly defined set of values, so this is replaceable.
+/// First 64 RGB triples from NESdev's 2C02G_wiki.pal.
+/// The full source palette also contains color-emphasis variants.
 pub const paletteRgb = @embedFile("ntscpalette.pal");
 comptime {
     if (paletteRgb.len != paletteSize) @compileError("ntscpalette.pal must be 192 bytes");

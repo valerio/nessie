@@ -13,6 +13,7 @@ pub const screenWidth = ppu.screenWidth;
 pub const screenHeight = ppu.screenHeight;
 pub const paletteColorCount = ppu.paletteColorCount;
 pub const paletteRgb = ppu.paletteRgb;
+pub const audioSampleRate = apu.sampleRate;
 pub const buttons = input.buttons;
 
 test {

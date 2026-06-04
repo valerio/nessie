@@ -16,6 +16,7 @@ const Mapper = mapper.Mapper;
 const Cartridge = cart.Cartridge;
 const Ppu = ppu.Ppu;
 const Controller = input.Controller;
+const ControllerSelector = input.ControllerSelector;
 const Apu = apu_mod.Apu;
 
 const internalRamSize = 0x800; // 2KB
@@ -103,14 +104,10 @@ pub const System = struct {
         }
     }
 
-    pub fn setController1Buttons(self: *System, buttons: u8) void {
-        self.controller1.buttons = buttons;
-        if (self.controller1.strobe) self.controller1.shiftReg = buttons;
-    }
-
-    pub fn setController2Buttons(self: *System, buttons: u8) void {
-        self.controller2.buttons = buttons;
-        if (self.controller2.strobe) self.controller2.shiftReg = buttons;
+    pub fn setInput(self: *System, selector: ControllerSelector, buttons: u8) void {
+        const ctrl = if (selector == .one) &self.controller1 else &self.controller2;
+        ctrl.buttons = buttons;
+        if (ctrl.strobe) ctrl.shiftReg = buttons;
     }
 
     pub fn readMemory(self: *const System, addr: u16) u8 {
@@ -123,6 +120,8 @@ pub const System = struct {
 
     fn runInstruction(self: *System) void {
         const cyclesBefore = self.cpuCycles;
+        defer self.flushAudioSince(cyclesBefore);
+
         self.nmiCommittedCyclesThisInstruction = 0;
         if (self.cpu.halted) {
             tick(self);
@@ -155,6 +154,12 @@ pub const System = struct {
         self.runPendingDmaAtInstructionBoundary();
         self.commitNmiForInstruction(cyclesBefore);
         self.samplePendingIrq();
+    }
+
+    fn flushAudioSince(self: *System, cycles_before: u64) void {
+        const elapsed = self.cpuCycles - cycles_before;
+        if (elapsed == 0) return;
+        self.apu.tickAudio(@intCast(elapsed));
     }
 
     pub fn cycleRead(s: *System, addr: u16) u8 {

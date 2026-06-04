@@ -203,7 +203,6 @@ fn buildRaylib(
             .imports = &.{
                 .{ .name = "nessie", .module = mod },
                 .{ .name = "raylib", .module = raylib_zig.module("raylib") },
-                .{ .name = "raygui", .module = raylib_zig.module("raygui") },
             },
         }),
     });

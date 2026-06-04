@@ -1,13 +1,17 @@
 const std = @import("std");
 const rl = @import("raylib");
-const gui = @import("raygui");
 const nessie = @import("nessie");
 
 const screenW = nessie.screenWidth;
 const screenH = nessie.screenHeight;
 const scale = 2;
-const toolbarH = 32 * scale;
 const paletteW = nessie.paletteColorCount;
+const gamepad = 0;
+const audioChannels = 2;
+const audioFrameCount = nessie.audioSampleRate / 60;
+const audioSampleCount = audioFrameCount * audioChannels;
+
+var paletteRgba: [paletteW * 4]u8 = undefined;
 
 const paletteFragmentShader =
     \\#version 330
@@ -23,16 +27,9 @@ const paletteFragmentShader =
     \\}
 ;
 
-const iconFileOpen = gui.IconName.file_open;
-const iconPlayerPlay = gui.IconName.player_play;
-const iconPlayerPause = gui.IconName.player_pause;
-const iconExit = gui.IconName.exit;
-
 const AppState = struct {
     sys: *nessie.System,
     running: bool = true,
-    showStatusBar: bool = true,
-    quitRequested: bool = false,
 };
 
 pub fn main(init: std.process.Init) !void {
@@ -47,11 +44,21 @@ pub fn main(init: std.process.Init) !void {
     var sys = try nessie.System.initFromFile(allocator, init.io, args[1]);
     defer sys.deinit(allocator);
 
-    rl.initWindow(screenW * scale, screenH * scale + toolbarH, "nessie");
+    rl.initWindow(screenW * scale, screenH * scale, "nessie");
     defer rl.closeWindow();
 
     rl.setTargetFPS(60);
-    gui.setIconScale(scale);
+
+    rl.initAudioDevice();
+    defer rl.closeAudioDevice();
+    rl.setAudioStreamBufferSizeDefault(audioFrameCount);
+
+    const audioStream = try rl.loadAudioStream(nessie.audioSampleRate, 32, audioChannels);
+    defer rl.unloadAudioStream(audioStream);
+    rl.playAudioStream(audioStream);
+
+    var audioSamples = [_]f32{0} ** audioSampleCount;
+    const audioBuffer = audioSamples[0..];
 
     const screenTexture = try createScreenTexture(&sys);
     defer rl.unloadTexture(screenTexture);
@@ -61,25 +68,29 @@ pub fn main(init: std.process.Init) !void {
     defer rl.unloadShader(paletteShader);
 
     const paletteLoc = rl.getShaderLocation(paletteShader, "nes_palette");
-    rl.setShaderValueTexture(paletteShader, paletteLoc, paletteTexture);
 
     var state = AppState{ .sys = &sys };
 
-    while (!rl.windowShouldClose() and !state.quitRequested) {
-        if (rl.isKeyPressed(.space)) {
-            state.showStatusBar = !state.showStatusBar;
-        }
+    while (!rl.windowShouldClose()) {
+        if (rl.isKeyPressed(.p)) state.running = !state.running;
 
+        state.sys.setInput(.one, readControllerButtons());
         if (state.running) {
             state.sys.runFrame();
+        }
+
+        while (rl.isAudioStreamProcessed(audioStream)) {
+            state.sys.apu.fillStereoSamples(audioBuffer);
+            if (!state.running) @memset(audioBuffer, 0);
+            rl.updateAudioStream(audioStream, audioBuffer.ptr, audioFrameCount);
         }
 
         rl.updateTexture(screenTexture, &state.sys.ppu.framebuffer);
 
         rl.beginDrawing();
+        defer rl.endDrawing();
         rl.clearBackground(.black);
-        drawUi(&state, screenTexture, paletteShader);
-        rl.endDrawing();
+        drawScreen(screenTexture, paletteShader, paletteTexture, paletteLoc);
     }
 }
 
@@ -97,62 +108,55 @@ fn createScreenTexture(sys: *const nessie.System) !rl.Texture2D {
 }
 
 fn createPaletteTexture() !rl.Texture2D {
+    for (0..paletteW) |i| {
+        paletteRgba[i * 4] = nessie.paletteRgb[i * 3];
+        paletteRgba[i * 4 + 1] = nessie.paletteRgb[i * 3 + 1];
+        paletteRgba[i * 4 + 2] = nessie.paletteRgb[i * 3 + 2];
+        paletteRgba[i * 4 + 3] = 0xff;
+    }
+
     const image = rl.Image{
-        .data = @constCast(nessie.paletteRgb),
+        .data = &paletteRgba,
         .width = paletteW,
         .height = 1,
         .mipmaps = 1,
-        .format = .uncompressed_r8g8b8,
+        .format = .uncompressed_r8g8b8a8,
     };
     const texture = try rl.loadTextureFromImage(image);
     rl.setTextureFilter(texture, .point);
     return texture;
 }
 
-fn drawUi(state: *AppState, texture: rl.Texture2D, shader: rl.Shader) void {
-    if (!state.showStatusBar) {
-        drawScreen(texture, shader, 0);
-        return;
+fn readControllerButtons() u8 {
+    var mask: u8 = 0;
+
+    if (rl.isKeyDown(.x)) mask |= nessie.buttons.a;
+    if (rl.isKeyDown(.z)) mask |= nessie.buttons.b;
+    if (rl.isKeyDown(.right_shift)) mask |= nessie.buttons.select;
+    if (rl.isKeyDown(.enter)) mask |= nessie.buttons.start;
+    if (rl.isKeyDown(.up)) mask |= nessie.buttons.up;
+    if (rl.isKeyDown(.down)) mask |= nessie.buttons.down;
+    if (rl.isKeyDown(.left)) mask |= nessie.buttons.left;
+    if (rl.isKeyDown(.right)) mask |= nessie.buttons.right;
+
+    if (rl.isGamepadAvailable(gamepad)) {
+        if (rl.isGamepadButtonDown(gamepad, .right_face_down)) mask |= nessie.buttons.a;
+        if (rl.isGamepadButtonDown(gamepad, .right_face_right)) mask |= nessie.buttons.b;
+        if (rl.isGamepadButtonDown(gamepad, .middle_left)) mask |= nessie.buttons.select;
+        if (rl.isGamepadButtonDown(gamepad, .middle_right)) mask |= nessie.buttons.start;
+        if (rl.isGamepadButtonDown(gamepad, .left_face_up)) mask |= nessie.buttons.up;
+        if (rl.isGamepadButtonDown(gamepad, .left_face_down)) mask |= nessie.buttons.down;
+        if (rl.isGamepadButtonDown(gamepad, .left_face_left)) mask |= nessie.buttons.left;
+        if (rl.isGamepadButtonDown(gamepad, .left_face_right)) mask |= nessie.buttons.right;
     }
 
-    if (gui.button(rect(8 * scale, 4 * scale, 84 * scale, 24 * scale), gui.iconText(@intFromEnum(iconFileOpen), "Load"))) {}
-
-    const runIcon = if (!state.running)
-        gui.iconText(@intFromEnum(iconPlayerPlay), "")
-    else
-        gui.iconText(@intFromEnum(iconPlayerPause), "");
-
-    if (gui.button(rect(100 * scale, 4 * scale, 32 * scale, 24 * scale), runIcon)) {
-        state.running = !state.running;
-    }
-
-    const screenWidthF = rl.getScreenWidth();
-    if (gui.button(
-        rect(
-            screenWidthF - 92 * scale,
-            4 * scale,
-            84 * scale,
-            24 * scale,
-        ),
-        gui.iconText(@intFromEnum(iconExit), "Quit"),
-    )) {
-        state.quitRequested = true;
-    }
-
-    drawScreen(texture, shader, toolbarH);
+    return mask;
 }
 
-fn drawScreen(texture: rl.Texture2D, shader: rl.Shader, y: i32) void {
+fn drawScreen(texture: rl.Texture2D, shader: rl.Shader, palette: rl.Texture2D, palette_loc: i32) void {
     rl.beginShaderMode(shader);
     defer rl.endShaderMode();
-    rl.drawTextureEx(texture, .{ .x = 0, .y = @floatFromInt(y) }, 0, scale, .white);
-}
 
-fn rect(x: i32, y: i32, w: i32, h: i32) rl.Rectangle {
-    return .{
-        .x = @floatFromInt(x),
-        .y = @floatFromInt(y),
-        .width = @floatFromInt(w),
-        .height = @floatFromInt(h),
-    };
+    rl.setShaderValueTexture(shader, palette_loc, palette);
+    rl.drawTextureEx(texture, .{ .x = 0, .y = 0 }, 0, scale, .white);
 }
