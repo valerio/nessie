@@ -108,8 +108,8 @@ pub const Dmc = struct {
     conflictSample: u8 = 0,
     conflictVisibleCpuOpsRemaining: u8 = 0,
 
-    pub fn writeReg(self: *Dmc, reg: u2, value: u8) void {
-        switch (reg) {
+    pub fn writeReg(self: *Dmc, reg: u16, value: u8) void {
+        switch (reg & 0x3) {
             0 => {
                 self.irqEnabled = (value & 0x80) != 0;
                 self.loopFlag = (value & 0x40) != 0;
@@ -119,6 +119,7 @@ pub const Dmc = struct {
             1 => self.outputLevel = value & 0x7f,
             2 => self.sampleAddress = sampleAddressBase + (@as(u16, value) * 64),
             3 => self.sampleLength = (@as(u16, value) * 16) + 1,
+            else => unreachable,
         }
     }
 

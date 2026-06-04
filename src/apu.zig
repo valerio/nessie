@@ -1,19 +1,18 @@
 const std = @import("std");
-const dmc_mod = @import("dmc.zig");
+const dmc = @import("dmc.zig");
 
-const Dmc = dmc_mod.Dmc;
+const Dmc = dmc.Dmc;
 
+pub const sampleRate = 44_100;
+
+const maxPcmSamples = sampleRate * 2;
 const apuStepQuarter1 = 7_457;
 const apuStepHalf2 = 14_913;
 const apuStepQuarter3 = 22_371;
 const apuMode0IrqStart = 29_828;
 const apuMode0Clock = 29_829;
 const apuMode1Clock = 37_281;
-
-pub const sampleRate = 44_100;
-
 const nesCpuClock = 1_789_773;
-const maxPcmSamples = sampleRate * 2;
 
 const lengthTable = [_]u8{
     10,  254, 20, 2,  40, 4,  80, 6,
@@ -82,8 +81,8 @@ const Pulse = struct {
     sweepDivider: u3 = 0,
     sweepReload: bool = false,
 
-    pub fn writeReg(self: *Pulse, reg: u2, value: u8) void {
-        switch (reg) {
+    pub fn writeReg(self: *Pulse, reg: u16, value: u8) void {
+        switch (reg & 0x3) {
             0 => {
                 self.duty = @truncate(value >> 6);
                 self.lengthHalt = (value & 0x20) != 0;
@@ -104,6 +103,7 @@ const Pulse = struct {
                 self.envelopeStart = true;
                 self.dutyPos = 0;
             },
+            else => unreachable,
         }
     }
 
@@ -175,8 +175,8 @@ const Triangle = struct {
     linearCounter: u7 = 0,
     linearReloadFlag: bool = false,
 
-    pub fn writeReg(self: *Triangle, reg: u2, value: u8) void {
-        switch (reg) {
+    pub fn writeReg(self: *Triangle, reg: u16, value: u8) void {
+        switch (reg & 0x3) {
             0 => {
                 self.lengthHalt = (value & 0x80) != 0;
                 self.linearReload = @truncate(value & 0x7f);
@@ -188,6 +188,7 @@ const Triangle = struct {
                 if (self.enabled) self.lengthCounter = lengthTable[value >> 3];
                 self.linearReloadFlag = true;
             },
+            else => unreachable,
         }
     }
 
@@ -235,8 +236,8 @@ const Noise = struct {
     envelopeDivider: u4 = 0,
     envelopeDecay: u4 = 0,
 
-    pub fn writeReg(self: *Noise, reg: u2, value: u8) void {
-        switch (reg) {
+    pub fn writeReg(self: *Noise, reg: u16, value: u8) void {
+        switch (reg & 0x3) {
             0 => {
                 self.lengthHalt = (value & 0x20) != 0;
                 self.constantVolume = (value & 0x10) != 0;
@@ -251,6 +252,7 @@ const Noise = struct {
                 if (self.enabled) self.lengthCounter = lengthTable[value >> 3];
                 self.envelopeStart = true;
             },
+            else => unreachable,
         }
     }
 
@@ -496,11 +498,11 @@ pub const Apu = struct {
 
     pub fn writeRegister(self: *Apu, addr: u16, value: u8) void {
         switch (addr) {
-            0x4010...0x4013 => self.dmc.writeReg(@truncate(addr & 0x0003), value),
-            0x4000...0x4003 => self.pulse1.writeReg(@truncate(addr & 0x0003), value),
-            0x4004...0x4007 => self.pulse2.writeReg(@truncate(addr & 0x0003), value),
-            0x4008...0x400b => self.triangle.writeReg(@truncate(addr & 0x0003), value),
-            0x400c...0x400f => self.noise.writeReg(@truncate(addr & 0x0003), value),
+            0x4010...0x4013 => self.dmc.writeReg(addr, value),
+            0x4000...0x4003 => self.pulse1.writeReg(addr, value),
+            0x4004...0x4007 => self.pulse2.writeReg(addr, value),
+            0x4008...0x400b => self.triangle.writeReg(addr, value),
+            0x400c...0x400f => self.noise.writeReg(addr, value),
             else => {},
         }
     }
@@ -570,9 +572,9 @@ fn tickEnvelopeStep(s: anytype) void {
     }
 }
 
-fn mix(pulse1: u8, pulse2: u8, triangle: u8, noise: u8, dmc: u8) f32 {
+fn mix(pulse1: u8, pulse2: u8, triangle: u8, noise: u8, dmc_output: u8) f32 {
     const pulseIndex = @as(usize, pulse1) + pulse2;
-    const tndIndex = 3 * @as(usize, triangle) + 2 * @as(usize, noise) + dmc;
+    const tndIndex = 3 * @as(usize, triangle) + 2 * @as(usize, noise) + dmc_output;
     const pulseOut = if (pulseIndex == 0) 0 else 95.52 / (8128.0 / @as(f32, @floatFromInt(pulseIndex)) + 100.0);
     const tndOut = if (tndIndex == 0) 0 else 163.67 / (24329.0 / @as(f32, @floatFromInt(tndIndex)) + 100.0);
     return pulseOut + tndOut;

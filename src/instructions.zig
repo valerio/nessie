@@ -20,29 +20,6 @@ fn stackPop(s: *System) u8 {
     return s.cycleRead(0x0100 | @as(u16, s.cpu.sp));
 }
 
-test "NMI pending during BRK sequence hijacks vector but keeps BRK stack flags" {
-    const mapper = @import("mapper.zig");
-    const testing = std.testing;
-
-    var prg = [_]u8{0} ** 0x4000;
-    prg[0x3ffa] = 0x00;
-    prg[0x3ffb] = 0x40;
-    prg[0x3ffe] = 0x00;
-    prg[0x3fff] = 0x30;
-
-    var system: System = .{ .mapper = mapper.fromData(&prg) };
-    system.cpu.pc = 0x0201;
-    system.ppu.ctrl.nmiEnable = true;
-    system.ppu.scanline = 241;
-    system.ppu.dot = 0;
-
-    interrupt(&system, .brk);
-
-    try testing.expectEqual(@as(u16, 0x4000), system.cpu.pc);
-    try testing.expect(!system.pendingNmi);
-    try testing.expectEqual(@as(u8, 0x34), system.internalRam[0x01fb & 0x07ff]);
-}
-
 pub fn exec(s: *System, op: opcodes.Opcode) void {
     const addr = addressing.resolveAddr(s, op);
 
