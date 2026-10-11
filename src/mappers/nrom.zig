@@ -23,8 +23,8 @@ pub fn fromData(data: []const u8) Nrom {
 pub const Nrom = struct {
     prgRom: []const u8,
     chrRom: []const u8,
-    prgRam: [prgRamSize]u8 = [_]u8{0} ** prgRamSize,
-    chrRam: [chrRamSize]u8 = [_]u8{0} ** chrRamSize,
+    prgRam: [prgRamSize]u8 = @splat(0),
+    chrRam: [chrRamSize]u8 = @splat(0),
     hasChrRam: bool = false,
 
     pub fn read(self: *const Nrom, addr: u16) u8 {

@@ -73,7 +73,7 @@ pub fn parseINESData(data: []u8) LoadError!Cartridge {
         .chrRom = if (chrSize > 0) data[chrStart..expectedSize] else &[_]u8{},
         .chrBanks = chrBanks,
         .mapper = mapper,
-        .mirrorMode = @enumFromInt(flags6 & 1),
+        .mirrorMode = @fromBackingInt(@as(u1, @intCast(flags6 & 1))),
         .hasChrRam = chrBanks == 0,
         .hasBattery = flags6 & 0x02 != 0,
     };
@@ -97,7 +97,7 @@ pub fn deinit(cart: *Cartridge, allocator: std.mem.Allocator) void {
 
 test "cart parsing" {
     const romSize = inesHeaderSize + prgBankSize + chrBankSize;
-    var rom = [_]u8{0} ** romSize;
+    var rom: [romSize]u8 = @splat(0);
     rom[0] = inesMagic[0];
     rom[1] = inesMagic[1];
     rom[2] = inesMagic[2];

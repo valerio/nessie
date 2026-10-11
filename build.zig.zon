@@ -2,11 +2,11 @@
     .name = .nessie,
     .version = "0.0.0",
     .fingerprint = 0x7434abf61713b92d, // Changing this has security and trust implications.
-    .minimum_zig_version = "0.16.0",
+    .minimum_zig_version = "0.17.0",
     .dependencies = .{
         .raylib_zig = .{
-            .url = "git+https://github.com/raylib-zig/raylib-zig?ref=devel#97be2c7ae646a2f09856604b138c427c0af1b952",
-            .hash = "raylib_zig-6.0.0-KE8REDJ4BQBu7lKwYNt6R4j5ywPeS37zqW6zrtjCcRwH",
+            .url = "git+https://github.com/raylib-zig/raylib-zig?ref=devel#50d450099da664bedd7dcc6ed40204ab0bb861a5",
+            .hash = "raylib_zig-6.0.0-KE8REDSmBQAbyUv_Fh71wgvhQSP2zsmVxtPRLzCgIXWK",
         },
     },
     .paths = .{

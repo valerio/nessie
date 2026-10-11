@@ -154,7 +154,7 @@ pub const Dmc = struct {
         self.statusDelay = if (is_get_cycle) 3 else 2;
         self.loadDelay = null;
 
-        if (@intFromEnum(kind) < @intFromEnum(Kind.pendingLoad) and
+        if (@backingInt(kind) < @backingInt(Kind.pendingLoad) and
             !loadPendAtEntry and
             !reloadPendAtEntry and
             !self.sampleBufferEmpty and
@@ -172,10 +172,10 @@ pub const Dmc = struct {
             return;
         }
 
-        const isPendReload = @intFromEnum(kind) >= @intFromEnum(Kind.pendingReloadWaitStatus) and
-            @intFromEnum(kind) <= @intFromEnum(Kind.pendingReloadAlignWaitHalt);
-        const isReloadTransfer = (@intFromEnum(kind) >= @intFromEnum(Kind.haltReload) and
-            @intFromEnum(kind) <= @intFromEnum(Kind.haltAborted)) or
+        const isPendReload = @backingInt(kind) >= @backingInt(Kind.pendingReloadWaitStatus) and
+            @backingInt(kind) <= @backingInt(Kind.pendingReloadAlignWaitHalt);
+        const isReloadTransfer = (@backingInt(kind) >= @backingInt(Kind.haltReload) and
+            @backingInt(kind) <= @backingInt(Kind.haltAborted)) or
             kind == .dummyReload or kind == .alignReload;
         const isReloadMode = isPendReload or isReloadTransfer;
 
@@ -542,7 +542,7 @@ pub const Dmc = struct {
     }
 
     fn scheduleReloadDma(self: *Dmc) void {
-        if (@intFromEnum(self.dma.kind) >= @intFromEnum(Kind.pendingLoad) or self.reloadDelay != null or self.loadDelay != null) return;
+        if (@backingInt(self.dma.kind) >= @backingInt(Kind.pendingLoad) or self.reloadDelay != null or self.loadDelay != null) return;
 
         const shouldSchedule = self.bytesRemaining > 0 or self.implicitAbortPending or isAbortWindow(self.dma.kind);
         if (!shouldSchedule) return;
@@ -581,7 +581,7 @@ pub const Dmc = struct {
     fn abortPendingReloadOnStatusDisable(self: *Dmc, kind: Kind) void {
         if (isNormalPendingReload(kind) or isImplicitPendingReload(kind)) {
             self.dma.kind = toAbortedKind(kind) orelse self.dma.kind;
-        } else if (kind != .explicitAbortWindow and @intFromEnum(kind) < @intFromEnum(Kind.pendingLoad) and kind != .beforeScheduleDisable) {
+        } else if (kind != .explicitAbortWindow and @backingInt(kind) < @backingInt(Kind.pendingLoad) and kind != .beforeScheduleDisable) {
             self.dma = .{ .kind = .beforeScheduleDisable };
         }
     }
@@ -646,13 +646,13 @@ fn hasReloadContext(kind: Kind) bool {
 }
 
 fn isImplicitPendingReload(kind: Kind) bool {
-    return @intFromEnum(kind) >= @intFromEnum(Kind.pendingReloadImplicitAbortWaitStatus) and
-        @intFromEnum(kind) <= @intFromEnum(Kind.pendingReloadImplicitAbortWaitHalt);
+    return @backingInt(kind) >= @backingInt(Kind.pendingReloadImplicitAbortWaitStatus) and
+        @backingInt(kind) <= @backingInt(Kind.pendingReloadImplicitAbortWaitHalt);
 }
 
 fn isNormalPendingReload(kind: Kind) bool {
-    return @intFromEnum(kind) >= @intFromEnum(Kind.pendingReloadWaitStatus) and
-        @intFromEnum(kind) <= @intFromEnum(Kind.pendingReloadWaitHalt);
+    return @backingInt(kind) >= @backingInt(Kind.pendingReloadWaitStatus) and
+        @backingInt(kind) <= @backingInt(Kind.pendingReloadWaitHalt);
 }
 
 fn isAbortWindow(kind: Kind) bool {

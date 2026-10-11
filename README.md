@@ -1,6 +1,7 @@
 # nessie
 
 Yet another NES emulator, a small project with two goals:
+
 - learn a bit of Zig
 - get it to pass [AccuracyCoin](https://github.com/100thCoin/AccuracyCoin) with disregard to quality/performance
 
@@ -11,9 +12,10 @@ Yet another NES emulator, a small project with two goals:
 
 ## Building & running
 
-Requires Zig 0.16.0.
+Requires Zig 0.17.0.
 
 For the actual executable
+
 ```sh
 zig build raylib --release=fast
 
@@ -22,6 +24,7 @@ zig build raylib --release=fast
 ```
 
 Running the AccuracyCoin harness (headless runner, reports test failures):
+
 ```sh
 zig build accuracycoin
 AccuracyCoin: 138/138 passed, 0 failed, 0 incomplete after 4670 polled frames
@@ -29,21 +32,21 @@ AccuracyCoin: 138/138 passed, 0 failed, 0 incomplete after 4670 polled frames
 
 ## Controls
 
-| NES | Keyboard |
-| --- | --- |
-| A | <kbd>X</kbd> |
-| B | <kbd>Z</kbd> |
-| Select | <kbd>Right Shift</kbd> |
-| Start | <kbd>Enter</kbd> |
-| D-pad | <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> |
-| Pause emulation | <kbd>P</kbd> |
-
+| NES             | Keyboard                                            |
+| --------------- | --------------------------------------------------- |
+| A               | <kbd>X</kbd>                                        |
+| B               | <kbd>Z</kbd>                                        |
+| Select          | <kbd>Right Shift</kbd>                              |
+| Start           | <kbd>Enter</kbd>                                    |
+| D-pad           | <kbd>↑</kbd> <kbd>↓</kbd> <kbd>←</kbd> <kbd>→</kbd> |
+| Pause emulation | <kbd>P</kbd>                                        |
 
 ## Notes
 
 Main executable uses [Raylib](https://www.raylib.com/) for video/audio/input.
 
 This project contains code generated via agentic coding, examples can be seen in:
+
 - repetitive structural code (instruction tests in `system.zig`)
 - dmc/ppu code, started from handwritten structure and later driven by an agent trying to pass AccuracyCoin tests
 

@@ -98,12 +98,12 @@ const SpritePixel = struct {
 
 pub const Ppu = struct {
     // Memory visible to the frontend, PPU bus, and sprite DMA.
-    framebuffer: [screenWidth * screenHeight]u8 = [_]u8{0} ** (screenWidth * screenHeight),
-    vram: [vramSize]u8 = [_]u8{0} ** vramSize,
-    palette: [paletteRamSize]u8 = [_]u8{0} ** paletteRamSize,
-    oam: [oamSize]u8 = [_]u8{0} ** oamSize,
-    secondaryOam: [secondaryOamSize]u8 = [_]u8{0xff} ** secondaryOamSize,
-    evalSecondaryOam: [secondaryOamSize]u8 = [_]u8{0xff} ** secondaryOamSize,
+    framebuffer: [screenWidth * screenHeight]u8 = @splat(0),
+    vram: [vramSize]u8 = @splat(0),
+    palette: [paletteRamSize]u8 = @splat(0),
+    oam: [oamSize]u8 = @splat(0),
+    secondaryOam: [secondaryOamSize]u8 = @splat(0xff),
+    evalSecondaryOam: [secondaryOamSize]u8 = @splat(0xff),
 
     // CPU-facing registers and their internal latches.
     ctrl: Control = .{},
@@ -144,15 +144,15 @@ pub const Ppu = struct {
     spriteRenderDots: u32 = 0,
     spriteCount: u8 = 0,
     evalSpriteCount: u8 = 0,
-    spriteAttrs: [spriteSlots]u8 = [_]u8{0} ** spriteSlots,
-    fetchedSpriteAttrs: [spriteSlots]u8 = [_]u8{0} ** spriteSlots,
-    spritePatternLo: [spriteSlots]u8 = [_]u8{0} ** spriteSlots,
-    spritePatternHi: [spriteSlots]u8 = [_]u8{0} ** spriteSlots,
-    fetchedSpritePatternLo: [spriteSlots]u8 = [_]u8{0} ** spriteSlots,
-    fetchedSpritePatternHi: [spriteSlots]u8 = [_]u8{0} ** spriteSlots,
-    spriteXCounter: [spriteSlots]u8 = [_]u8{0} ** spriteSlots,
-    fetchedSpriteXCounter: [spriteSlots]u8 = [_]u8{0xff} ** spriteSlots,
-    spriteIsZero: [spriteSlots]bool = [_]bool{false} ** spriteSlots,
+    spriteAttrs: [spriteSlots]u8 = @splat(0),
+    fetchedSpriteAttrs: [spriteSlots]u8 = @splat(0),
+    spritePatternLo: [spriteSlots]u8 = @splat(0),
+    spritePatternHi: [spriteSlots]u8 = @splat(0),
+    fetchedSpritePatternLo: [spriteSlots]u8 = @splat(0),
+    fetchedSpritePatternHi: [spriteSlots]u8 = @splat(0),
+    spriteXCounter: [spriteSlots]u8 = @splat(0),
+    fetchedSpriteXCounter: [spriteSlots]u8 = @splat(0xff),
+    spriteIsZero: [spriteSlots]bool = @splat(false),
     evalSprite0OnLine: bool = false,
     sprite0Visible: bool = false,
     fetchedSprite0Visible: bool = false,
@@ -620,7 +620,7 @@ pub const Ppu = struct {
         self.evalNextStep = 1;
         self.evalSpriteCount = 0;
         self.evalSprite0OnLine = false;
-        self.evalSecondaryOam = [_]u8{0xff} ** secondaryOamSize;
+        self.evalSecondaryOam = @splat(0xff);
         self.secondaryOamAddr = 0;
         self.spriteAddrH = (self.oamAddr >> 2) & 0x3f;
         self.spriteAddrL = self.oamAddr & 0x03;
@@ -763,10 +763,10 @@ pub const Ppu = struct {
         self.fetchActive = true;
         self.fetchNextStep = 1;
         self.fetchedSprite0Visible = false;
-        self.fetchedSpritePatternLo = [_]u8{0} ** spriteSlots;
-        self.fetchedSpritePatternHi = [_]u8{0} ** spriteSlots;
-        self.fetchedSpriteXCounter = [_]u8{0xff} ** spriteSlots;
-        self.fetchedSpriteAttrs = [_]u8{0} ** spriteSlots;
+        self.fetchedSpritePatternLo = @splat(0);
+        self.fetchedSpritePatternHi = @splat(0);
+        self.fetchedSpriteXCounter = @splat(0xff);
+        self.fetchedSpriteAttrs = @splat(0);
         self.advanceFetchStep(cart_mapper, mirror_mode);
         self.fetchedSprite0Visible = self.evalSprite0OnLine and (target_scanline > 0 or allowScanline0Sprite0);
     }
@@ -781,14 +781,14 @@ pub const Ppu = struct {
             self.spritePatternLo[slot] = self.fetchedSpritePatternLo[slot];
             self.spritePatternHi[slot] = self.fetchedSpritePatternHi[slot];
         }
-        self.spriteIsZero = [_]bool{false} ** spriteSlots;
+        self.spriteIsZero = @splat(false);
         if (self.sprite0Visible and self.spriteCount > 0) self.spriteIsZero[0] = true;
 
         if (is_rendering) {
             for (0..offset) |slot| self.spriteXCounter[slot] = 0;
             for (offset..spriteSlots) |slot| self.spriteXCounter[slot] = self.fetchedSpriteXCounter[slot];
         } else {
-            self.spriteXCounter = [_]u8{0} ** spriteSlots;
+            self.spriteXCounter = @splat(0);
         }
         self.sprite0HblankReloadSuppressed = false;
     }

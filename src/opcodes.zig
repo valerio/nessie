@@ -52,7 +52,7 @@ pub const Opcode = packed struct(u16) {
 };
 
 pub fn buildTable(comptime specs: []const OpcodeSpec) [256]Opcode {
-    var result = [_]Opcode{.{}} ** 256;
+    var result: [256]Opcode = @splat(.{});
 
     for (specs) |spec| {
         result[spec.op] = Opcode{

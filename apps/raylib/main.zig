@@ -57,7 +57,7 @@ pub fn main(init: std.process.Init) !void {
     defer rl.unloadAudioStream(audioStream);
     rl.playAudioStream(audioStream);
 
-    var audioSamples = [_]f32{0} ** audioSampleCount;
+    var audioSamples: [audioSampleCount]f32 = @splat(0);
     const audioBuffer = audioSamples[0..];
 
     const screenTexture = try createScreenTexture(&sys);

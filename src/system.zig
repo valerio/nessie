@@ -40,7 +40,7 @@ pub const System = struct {
     controller2: Controller = .{},
     mapper: Mapper,
     cartridge: Cartridge = .{},
-    internalRam: [internalRamSize]u8 = [_]u8{0} ** internalRamSize,
+    internalRam: [internalRamSize]u8 = @splat(0),
 
     // CPU bus and frame accounting.
     cpuCycles: u64 = 0,
@@ -542,7 +542,7 @@ pub const System = struct {
 };
 
 test "system executes LDA immediate" {
-    var system: System = .{ .mapper = mapper.fromData(&[_]u8{0} ** 0x4000) };
+    var system: System = .{ .mapper = mapper.fromData(&@as([0x4000]u8, @splat(0))) };
     const testPc: u16 = 0x0200;
 
     system.cpu.pc = testPc;
@@ -731,7 +731,7 @@ test "instruction execution" {
 
     for (testCases, 0..) |case, caseIndex| {
         errdefer std.debug.print("failed instruction case {d}: opcode 0x{x:0>2}\n", .{ caseIndex, case.opcode });
-        var system: System = .{ .mapper = mapper.fromData(&[_]u8{0} ** 0x4000) };
+        var system: System = .{ .mapper = mapper.fromData(&@as([0x4000]u8, @splat(0))) };
 
         system.cpu.pc = testPc;
         system.cpu.a = case.setup.a;
@@ -770,7 +770,7 @@ test "instruction execution" {
 }
 
 test "system writes/reads internal ram" {
-    var system: System = .{ .mapper = mapper.fromData(&[_]u8{0} ** 0x4000) };
+    var system: System = .{ .mapper = mapper.fromData(&@as([0x4000]u8, @splat(0))) };
 
     system.busWrite(0xff, 0xff);
     try testing.expectEqual(0, system.cpu.pc);
@@ -789,7 +789,7 @@ test "system mirrors internal ram" {
     };
 
     for (cases) |case| {
-        var system: System = .{ .mapper = mapper.fromData(&[_]u8{0} ** 0x4000) };
+        var system: System = .{ .mapper = mapper.fromData(&@as([0x4000]u8, @splat(0))) };
         system.busWrite(case.addr, case.value);
         for ([_]u16{ 0, 0x800, 0x1000, 0x1800 }) |mirror| {
             try testing.expectEqual(case.value, system.busRead(mirror + case.addr));

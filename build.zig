@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub fn build(b: *std.Build) void {
+pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
@@ -26,9 +26,7 @@ pub fn build(b: *std.Build) void {
     const run_cmd = b.addRunArtifact(cliExe);
     run_step.dependOn(&run_cmd.step);
     run_cmd.step.dependOn(b.getInstallStep());
-    if (b.args) |args| {
-        run_cmd.addArgs(args);
-    }
+    run_cmd.addPassthruArgs();
 
     const mod_tests = b.addTest(.{
         .root_module = mod,
@@ -45,7 +43,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_exe_tests.step);
 
     buildAccuracyCoinHarness(b, mod, target);
-    buildRaylib(b, mod, target, optimize);
+    try buildRaylib(b, mod, target, optimize);
 }
 
 fn buildAccuracyCoinHarness(
@@ -58,7 +56,7 @@ fn buildAccuracyCoinHarness(
         .root_module = b.createModule(.{
             .root_source_file = b.path("apps/accuracycoin/main.zig"),
             .target = target,
-            .optimize = .ReleaseFast,
+            .optimize = .fast,
             .imports = &.{
                 .{ .name = "nessie", .module = mod },
             },
@@ -68,21 +66,22 @@ fn buildAccuracyCoinHarness(
     const runAc = b.addRunArtifact(acExe);
     b.step("accuracycoin", "Run AccuracyCoin harness").dependOn(&runAc.step);
 
-    if (b.args) |args| {
-        runAc.addArgs(args);
-    }
+    runAc.addPassthruArgs();
 }
 
 fn buildRaylib(
     b: *std.Build,
     mod: *std.Build.Module,
     target: std.Build.ResolvedTarget,
-    optimize: std.builtin.OptimizeMode,
-) void {
+    optimize: std.lang.Optimize,
+) !void {
     const raylib_zig = b.dependency("raylib_zig", .{
         .target = target,
         .optimize = optimize,
     });
+
+    // Raylib may return before defining modules while its lazy dependencies load.
+    if (b.graph.needed_lazy_dependencies.count() != 0) return error.LazyDependencyNeeded;
 
     const rl_exe = b.addExecutable(.{
         .name = "nessie-rl",
@@ -107,7 +106,5 @@ fn buildRaylib(
     const rl_run_cmd = b.addRunArtifact(rl_exe);
     b.step("run-rl", "Run raylib app").dependOn(&rl_run_cmd.step);
 
-    if (b.args) |args| {
-        rl_run_cmd.addArgs(args);
-    }
+    rl_run_cmd.addPassthruArgs();
 }
